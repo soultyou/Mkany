@@ -5,24 +5,6 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface UserProfile {
-  id: string;
-  clerkUserId: string;
-  fullName: string;
-  nationalId: string;
-  phoneNumber: string;
-  email: string;
-  university: string;
-  avatarUrl?: string | null;
-  role: string;
-  isVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export interface UpdateProfileBody {
   /** @minLength 3 */
@@ -35,4 +17,3 @@ export interface UpdateProfileBody {
   university?: string;
   avatarUrl?: string | null;
 }
-

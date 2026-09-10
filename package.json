@@ -9,8 +9,10 @@
     "scripts"
   ],
   "scripts": {
-    "dev": "npm --workspace=@workspace/mkany-student-housing run dev",
-    "build": "npm --workspace=@workspace/mkany-student-housing run build",
+    "dev": "npm run dev:api & npm run dev:frontend",
+    "dev:api": "API_PORT=3001 npm --workspace=@workspace/api-server run dev",
+    "dev:frontend": "npm --workspace=@workspace/mkany-student-housing run dev",
+    "build": "npm --workspace=@workspace/api-server run build && npm --workspace=@workspace/mkany-student-housing run build",
     "lint": "npm --workspace=@workspace/mkany-student-housing run typecheck"
   },
   "dependencies": {

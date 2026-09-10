@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { useAuth, EGYPTIAN_UNIVERSITIES } from "@/components/auth/clerk-auth";
 import { getStudentBookings, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
-import { StudentUser, switchSessionRole } from "@/lib/user-db-sync";
 import { StandardModal } from "@/components/ui/StandardModal";
 
 interface StudentDashboardProps {
@@ -36,7 +35,7 @@ interface StudentDashboardProps {
 }
 
 export function StudentDashboard({ openToast, onExploreProperties, onViewPropertyModal, onGoToOwnerDashboard }: StudentDashboardProps) {
-  const { user, isSignedIn, openSignIn, updateUserProfile } = useAuth();
+  const { user, isSignedIn, openSignIn, updateUserProfile, switchRole } = useAuth();
   const [activeTab, setActiveTab] = useState<"bookings" | "profile">("bookings");
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
 
@@ -116,12 +115,8 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
 
             <button
               onClick={() => {
-                const switched = switchSessionRole("student");
-                if (switched) {
-                  openToast(`تم التبديل بنجاح إلى حساب الطالب: ${switched.fullName} 🎓`);
-                } else {
-                  openSignIn();
-                }
+                switchRole("student");
+                openToast(`تم التبديل بنجاح إلى حساب الطالب 🎓`);
               }}
               className="rounded-xl border border-primary/30 bg-primary/5 px-6 py-3.5 text-sm font-bold text-primary hover:bg-primary/10 transition-colors"
             >

@@ -16,8 +16,6 @@ import {
 } from "@/components/auth/clerk-auth";
 import { OwnerPublicView } from "@/components/owner/OwnerPublicView";
 import { OwnerDashboard } from "@/components/owner/OwnerDashboard";
-import { AdminInspectionPortal } from "@/components/admin/AdminInspectionPortal";
-import { StealthAdminGateModal } from "@/components/admin/StealthAdminGateModal";
 import { AdminSecurePortalPage } from "@/components/admin/AdminSecurePortalPage";
 import { StudentDashboard } from "@/components/student/StudentDashboard";
 import { BookingReceiptFlow } from "@/components/booking/BookingReceiptFlow";
@@ -513,8 +511,7 @@ function Footer({
 function AppContent() {
   const [light, setLight] = useState(false); 
   const [activeView, setActiveView] = useState<ActiveViewType>("listings"); 
-  const [adminPortalOpen, setAdminPortalOpen] = useState(false);
-  const [stealthGateOpen, setStealthGateOpen] = useState(false);
+  const [, setLocation] = useLocation();
   const [platformProperties, setPlatformProperties] = useState<PlatformProperty[]>(() => getAllPlatformProperties());
   const [selected, setSelected] = useState<Property | null>(null); 
   const [saved, setSaved] = useState<number[]>([]); 
@@ -571,7 +568,7 @@ function AppContent() {
         (e.altKey && e.shiftKey && (e.key === "m" || e.key === "M" || e.code === "KeyM"))
       ) {
         e.preventDefault();
-        setStealthGateOpen(true);
+        setLocation("/admin-secure-portal");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -582,7 +579,7 @@ function AppContent() {
   useEffect(() => {
     const checkHash = () => {
       if (window.location.hash === "#mkany-admin" || window.location.hash === "#stealth-admin") {
-        setStealthGateOpen(true);
+        setLocation("/admin-secure-portal");
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
       }
     };
@@ -615,7 +612,7 @@ function AppContent() {
         activeView={activeView} 
         setView={setActiveView} 
         openToast={setToast}
-        onSecretAdminTrigger={() => setStealthGateOpen(true)}
+        onSecretAdminTrigger={() => setLocation("/admin-secure-portal")}
       />
 
       {activeView === "listings" && (
@@ -720,31 +717,7 @@ function AppContent() {
         />
       )}
 
-      {/* بوابة الآدمن الشبح بعد التحقق من الرمز */}
-      <StealthAdminGateModal 
-        isOpen={stealthGateOpen}
-        onClose={() => setStealthGateOpen(false)}
-        onSuccess={() => {
-          setAdminPortalOpen(true);
-        }}
-        openToast={setToast}
-      />
 
-      {adminPortalOpen && (
-        <AdminInspectionPortal 
-          onClose={() => {
-            setAdminPortalOpen(false);
-            refreshProperties();
-          }} 
-          openToast={setToast}
-          onViewStudentListings={() => {
-            setAdminPortalOpen(false);
-            refreshProperties();
-            setActiveView("listings");
-            window.setTimeout(() => document.getElementById("discover")?.scrollIntoView({ behavior: "smooth" }), 50);
-          }}
-        />
-      )}
 
       {toast && <div className="toast-in fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-primary/30 bg-card px-4 py-3 text-xs font-bold shadow-xl" role="status" data-testid="toast-message"><Check size={16} className="text-primary" />{toast}</div>}
     </div>

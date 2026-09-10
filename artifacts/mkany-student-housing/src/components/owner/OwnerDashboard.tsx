@@ -26,7 +26,6 @@ import {
   UserCheck
 } from "lucide-react";
 import { useAuth, SignInButton, SignUpButton } from "@/components/auth/clerk-auth";
-import { getAllRegisteredUsers, switchSessionRole, setCurrentSessionUser } from "@/lib/user-db-sync";
 import { 
   getAllInspections, 
   getAllPlatformProperties, 
@@ -48,7 +47,7 @@ export function OwnerDashboard({
   onViewPublicServices,
   onViewPropertyModal,
 }: OwnerDashboardProps) {
-  const { isSignedIn, user, updateUserProfile, openSignIn } = useAuth();
+  const { isSignedIn, user, updateUserProfile, openSignIn, switchRole } = useAuth();
   
   const [activeTab, setActiveTab] = useState<"units" | "inspections">("units");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -93,17 +92,8 @@ export function OwnerDashboard({
 
   // الدخول السريع بحساب مالك جاهز للتجربة
   const handleQuickDemoOwner = () => {
-    const switched = switchSessionRole("owner");
-    if (switched) {
-      openToast(`تم تفعيل جلسة المالك: ${switched.fullName} 🏢`);
-    } else {
-      const allUsers = getAllRegisteredUsers();
-      const ownerUser = allUsers.find((u) => u.role === "owner");
-      if (ownerUser) {
-        setCurrentSessionUser(ownerUser);
-        openToast(`تم تسجيل الدخول بحساب المالك: ${ownerUser.fullName}`);
-      }
-    }
+    switchRole("owner");
+    openToast(`تم تفعيل جلسة المالك 🏢`);
   };
 
   // 1. حماية لوحة التحكم: التحقق من تسجيل الدخول
@@ -178,12 +168,8 @@ export function OwnerDashboard({
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <button
               onClick={() => {
-                const switched = switchSessionRole("owner");
-                if (switched) {
-                  openToast(`تم التبديل بنجاح إلى حساب المالك: ${switched.fullName} 🏢`);
-                } else {
-                  openSignIn();
-                }
+                switchRole("owner");
+                openToast(`تم التبديل بنجاح إلى حساب المالك 🏢`);
               }}
               className="rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
               data-testid="button-switch-to-owner"
