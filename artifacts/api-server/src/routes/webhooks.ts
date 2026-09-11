@@ -93,20 +93,31 @@ clerkWebhooksRouter.post(
             req.log.info({ clerkUserId }, "User already exists (idempotent webhook)");
           }
         } else if (eventType === "user.updated") {
-          await db.update(users)
-            .set({
-              email,
-              fullName,
-              university,
-              nationalId,
-              phoneNumber,
-              avatarUrl,
-              role,
-              isVerified,
-              updatedAt: new Date(),
-            })
-            .where(eq(users.clerkUserId, clerkUserId));
-          req.log.info({ clerkUserId }, "User updated in database");
+          const existingUser = await db.query.users.findFirst({
+            where: eq(users.clerkUserId, clerkUserId),
+          });
+
+          if (existingUser) {
+            await db.update(users)
+              .set({
+                email,
+                fullName: fullName || existingUser.fullName,
+                university: university !== "جامعة أخرى" ? university : existingUser.university,
+                nationalId: nationalId || existingUser.nationalId,
+                phoneNumber: phoneNumber || existingUser.phoneNumber,
+                avatarUrl: avatarUrl || existingUser.avatarUrl,
+                // Preserve existing DB role unless explicitly provided in publicMetadata with valid value
+                role: publicMetadata.role && ["student", "owner", "admin"].includes(publicMetadata.role)
+                  ? publicMetadata.role
+                  : existingUser.role,
+                isVerified: typeof publicMetadata.isVerified === "boolean"
+                  ? publicMetadata.isVerified
+                  : existingUser.isVerified,
+                updatedAt: new Date(),
+              })
+              .where(eq(users.clerkUserId, clerkUserId));
+            req.log.info({ clerkUserId }, "User updated in database preserving DB role");
+          }
         }
       } else if (eventType === "user.deleted") {
         const clerkUserId = userData.id;

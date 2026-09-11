@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Building2, 
   ShieldCheck, 
@@ -66,8 +66,8 @@ import {
 } from "@/lib/api-client";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
 import { 
-  getAllBookings, 
-  updateBookingStatus, 
+  getAdminBookingsApi, 
+  updateBookingStatusApi, 
   StudentBooking 
 } from "@/lib/bookings-store";
 import { useAuth } from "@/components/auth/clerk-auth";
@@ -112,8 +112,21 @@ export function AdminInspectionPortal({
   const [isNewPropertyModalOpen, setIsNewPropertyModalOpen] = useState(false);
 
   // بيانات الحجوزات وإيصالات الدفع
-  const [bookings, setBookings] = useState<StudentBooking[]>(getAllBookings());
+  const [bookings, setBookings] = useState<StudentBooking[]>([]);
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+
+  const refreshAdminBookings = async () => {
+    try {
+      const data = await getAdminBookingsApi();
+      setBookings(data);
+    } catch (e) {
+      console.error("Failed to fetch admin bookings:", e);
+    }
+  };
+
+  useEffect(() => {
+    refreshAdminBookings();
+  }, []);
 
   // حقول جدولة المعاينة
   const [scheduleDate, setScheduleDate] = useState("غداً، الساعة ١٢:٠٠ ظهراً");
@@ -141,7 +154,7 @@ export function AdminInspectionPortal({
     syncPlatformPropertiesFromApi();
     setInspections(getAllInspections());
     setProperties(getAllPlatformProperties());
-    setBookings(getAllBookings());
+    refreshAdminBookings();
   };
 
   React.useEffect(() => {
@@ -241,13 +254,14 @@ export function AdminInspectionPortal({
   };
 
   // تغيير حالة حجز الطالب
-  const handleChangeBookingStatus = (
+  const handleChangeBookingStatus = async (
     bookingId: string, 
     newStatus: "confirmed" | "rejected" | "pending_review",
     notes?: string
   ) => {
-    updateBookingStatus(bookingId, newStatus, notes);
+    await updateBookingStatusApi(bookingId, newStatus, notes);
     openToast(newStatus === "confirmed" ? "تم تأكيد الحجز واعتماد الإيصال بنجاح ✓" : "تم تحديث حالة الحجز");
+    refreshAdminBookings();
     refreshAll();
   };
 
@@ -614,7 +628,7 @@ export function AdminInspectionPortal({
                     <div className="flex items-center gap-3">
                       {b.receiptImageUrl && (
                         <div
-                          onClick={() => setSelectedReceiptUrl(b.receiptImageUrl)}
+                          onClick={() => setSelectedReceiptUrl(b.receiptImageUrl || null)}
                           className="cursor-pointer group relative h-16 w-20 shrink-0 overflow-hidden rounded-xl border border-border"
                         >
                           <img
@@ -662,7 +676,7 @@ export function AdminInspectionPortal({
                       )}
 
                       <a
-                        href={`https://wa.me/20${b.studentPhone.replace(/^0/, "")}?text=${encodeURIComponent(`مرحباً ${b.studentName}، بخصوص حجزك (${b.bookingCode}) عبر منصة مكاني للسكن الطلابي...`)}`}
+                        href={`https://wa.me/20${((b.studentPhone || b.student?.phoneNumber || "").replace(/^0/, ""))}?text=${encodeURIComponent(`مرحباً ${b.studentName || b.student?.fullName || "طالب"}، بخصوص حجزك (${b.bookingCode}) عبر منصة مكاني للسكن الطلابي...`)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"

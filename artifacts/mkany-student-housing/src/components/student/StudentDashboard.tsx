@@ -24,7 +24,7 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { useAuth, EGYPTIAN_UNIVERSITIES, SignInButton } from "@/components/auth/clerk-auth";
-import { getStudentBookings, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
+import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 
 interface StudentDashboardProps {
@@ -135,9 +135,23 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
     );
   }
 
-  // 3. جلب حجوزات هذا الطالب حصرياً (Strict Student Isolation)
-  const studentIdentifier = user ? (user.id || user.email) : "";
-  const bookings: StudentBooking[] = studentIdentifier ? getStudentBookings(studentIdentifier) : [];
+  // 3. جلب حجوزات هذا الطالب حصرياً من قاعدة البيانات
+  const [bookings, setBookings] = useState<StudentBooking[]>([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+
+  React.useEffect(() => {
+    if (isSignedIn) {
+      setIsLoadingBookings(true);
+      getStudentBookingsApi()
+        .then((data) => {
+          setBookings(data);
+          setIsLoadingBookings(false);
+        })
+        .catch(() => {
+          setIsLoadingBookings(false);
+        });
+    }
+  }, [isSignedIn]);
 
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -359,7 +373,7 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
                       <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-4">
                         {booking.receiptImageUrl && (
                           <button
-                            onClick={() => setSelectedReceipt(booking.receiptImageUrl)}
+                            onClick={() => setSelectedReceipt(booking.receiptImageUrl || null)}
                             className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted"
                             data-testid={`btn-view-receipt-${booking.id}`}
                           >

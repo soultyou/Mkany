@@ -27,8 +27,19 @@ profileRouter.patch("/", async (req, res) => {
     return;
   }
 
-  // Explicitly sanitize update payload to prevent any possibility of role/isVerified/id manipulation
   const { fullName, nationalId, phoneNumber, university, avatarUrl } = result.data;
+
+  // Prevent resetting sentinel values or empty values that could be exploited to re-trigger onboarding
+  if (nationalId !== undefined && nationalId.trim() === "00000000000000") {
+    res.status(400).json({ error: "Bad Request", message: "Cannot reset national ID to placeholder value" });
+    return;
+  }
+  if (phoneNumber !== undefined && phoneNumber.trim() === "01000000000") {
+    res.status(400).json({ error: "Bad Request", message: "Cannot reset phone number to placeholder value" });
+    return;
+  }
+
+  // Explicitly sanitize update payload to prevent any possibility of role/isVerified/id/clerkUserId manipulation
   const updateData: Record<string, any> = { updatedAt: new Date() };
   if (fullName !== undefined) updateData.fullName = fullName;
   if (nationalId !== undefined) updateData.nationalId = nationalId;
@@ -62,28 +73,35 @@ profileRouter.post("/onboarding", async (req, res) => {
     return;
   }
 
-  // Security check: Only allow onboarding for users who have not completed onboarding
-  // Admin, Owner, or Student with real completed data cannot re-run onboarding to alter roles.
+  // Security check 1: Admin, Owner, or Student with real completed data cannot re-run onboarding to alter roles.
   const isStudentCompleted = dbUser.role === "student" && dbUser.nationalId !== "00000000000000" && dbUser.phoneNumber !== "01000000000";
   if (dbUser.role === "admin" || dbUser.role === "owner" || isStudentCompleted) {
-    res.status(403).json({ error: "Onboarding already completed for this account" });
+    res.status(403).json({ error: "Forbidden", message: "Onboarding already completed for this account" });
     return;
   }
 
   const { accountType, fullName, nationalId, phoneNumber, university, avatarUrl } = req.body || {};
 
   if (!accountType || (accountType !== "student" && accountType !== "owner")) {
-    res.status(400).json({ error: "Invalid account type. Must be 'student' or 'owner'." });
+    res.status(400).json({ error: "Bad Request", message: "Invalid account type. Must be 'student' or 'owner'." });
     return;
   }
 
+  // Security check 2: Prevent any student account that has established profile data from converting to owner
+  if (dbUser.role === "student" && accountType === "owner") {
+    if (dbUser.nationalId !== "00000000000000" || dbUser.phoneNumber !== "01000000000") {
+      res.status(403).json({ error: "Forbidden", message: "Existing Student account cannot be converted to Owner" });
+      return;
+    }
+  }
+
   if (!fullName || typeof fullName !== "string" || fullName.trim().length < 3) {
-    res.status(400).json({ error: "Full name must be at least 3 characters." });
+    res.status(400).json({ error: "Bad Request", message: "Full name must be at least 3 characters." });
     return;
   }
 
   if (!phoneNumber || typeof phoneNumber !== "string" || !/^(01[0125]\d{8}|\+201[0125]\d{8})$/.test(phoneNumber.trim())) {
-    res.status(400).json({ error: "Invalid Egyptian phone number format (e.g., 01012345678)." });
+    res.status(400).json({ error: "Bad Request", message: "Invalid Egyptian phone number format (e.g., 01012345678)." });
     return;
   }
 
@@ -99,11 +117,11 @@ profileRouter.post("/onboarding", async (req, res) => {
 
   if (accountType === "student") {
     if (!nationalId || typeof nationalId !== "string" || !/^\d{14}$/.test(nationalId.trim())) {
-      res.status(400).json({ error: "National ID must be exactly 14 digits." });
+      res.status(400).json({ error: "Bad Request", message: "National ID must be exactly 14 digits." });
       return;
     }
     if (!university || typeof university !== "string" || university.trim().length < 2) {
-      res.status(400).json({ error: "University name is required for student accounts." });
+      res.status(400).json({ error: "Bad Request", message: "University name is required for student accounts." });
       return;
     }
     updateData.nationalId = nationalId.trim();

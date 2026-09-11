@@ -21,14 +21,17 @@ import { relations } from "drizzle-orm";
 import { users } from "./users.ts";
 import { apartments, apartmentPhotos } from "./apartments.ts";
 import { inspections } from "./inspections.ts";
+import { bookings } from "./bookings.ts";
 
 export * from "./users.ts";
 export * from "./apartments.ts";
 export * from "./inspections.ts";
+export * from "./bookings.ts";
 
 export const usersRelations = relations(users, ({ many }) => ({
   apartments: many(apartments),
   inspections: many(inspections),
+  bookings: many(bookings),
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -41,6 +44,7 @@ export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
     fields: [apartments.inspectionId],
     references: [inspections.id],
   }),
+  bookings: many(bookings),
 }));
 
 export const apartmentPhotosRelations = relations(apartmentPhotos, ({ one }) => ({
@@ -54,6 +58,17 @@ export const inspectionsRelations = relations(inspections, ({ one }) => ({
   owner: one(users, {
     fields: [inspections.ownerId],
     references: [users.id],
+  }),
+}));
+
+export const bookingsRelations = relations(bookings, ({ one }) => ({
+  student: one(users, {
+    fields: [bookings.studentId],
+    references: [users.id],
+  }),
+  property: one(apartments, {
+    fields: [bookings.propertyId],
+    references: [apartments.id],
   }),
 }));
 

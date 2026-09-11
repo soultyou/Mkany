@@ -1,141 +1,143 @@
 /**
- * مخزن حجوزات الطلاب وإيصالات الدفع اليدوي (Student Bookings & Receipts Store)
- * يدير دورة حجز السكن الطلابي:
- * 1. حجز الطالب للوحدة ورفع سكرين شات / إيصال الدفع اليدوي (إنستاباي / فودافون كاش)
- * 2. التوجيه الفوري للواتساب المخصص للإدارة: 01055332242
- * 3. حفظ بيانات الحجز في الداشبورد الخاصة بالطالب
- * 4. إمكانية مراجعة الحجز واعتماده في غرفة تحكم الآدمن الشبح
+ * مخزن حجوزات الطلاب وإيصالات الدفع (Student Bookings & Receipts Store)
+ * متصل بقاعدة بيانات PostgreSQL عبر API السيرفر
  */
 
 export interface StudentBooking {
   id: string;
   bookingCode: string;
   propertyId: number;
-  propertyTitle: string;
-  propertyAddress: string;
-  propertyImage: string;
-  propertyPrice: number;
-  propertyUniversity: string;
+  propertyTitle?: string;
+  propertyAddress?: string;
+  propertyImage?: string;
+  propertyPrice?: number;
+  propertyUniversity?: string;
   studentId: string;
-  studentName: string;
-  studentPhone: string;
-  studentNationalId: string;
-  studentUniversity: string;
-  studentEmail: string;
+  studentName?: string;
+  studentPhone?: string;
+  studentNationalId?: string;
+  studentUniversity?: string;
+  studentEmail?: string;
   paymentMethod: "vodafone_cash" | "instapay" | "bank_transfer";
   paymentAmount: number;
-  receiptImageUrl: string;
+  receiptImageUrl?: string;
   senderPhone?: string;
   referenceNumber?: string;
   status: "pending_review" | "confirmed" | "rejected";
   adminNotes?: string;
   createdAt: string;
   updatedAt: string;
+  property?: any;
+  student?: any;
 }
 
-const STORAGE_BOOKINGS_KEY = "mkany_student_bookings_v1";
-
-// عينات أولية للحجوزات لإثراء التجربة فوراً
-const INITIAL_BOOKINGS: StudentBooking[] = [
-  {
-    id: "book_101",
-    bookingCode: "MKN-KFS-9482",
-    propertyId: 1,
-    propertyTitle: "غرفة مضيئة قرب الجلاء",
-    propertyAddress: "شارع الجلاء، كفر الشيخ",
-    propertyImage: "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    propertyPrice: 950,
-    propertyUniversity: "جامعة كفر الشيخ",
-    studentId: "usr_student_01",
-    studentName: "أحمد محمد كمال",
-    studentPhone: "01098765432",
-    studentNationalId: "30208151234567",
-    studentUniversity: "جامعة كفر الشيخ",
-    studentEmail: "ahmed.kamal@kfs.edu.eg",
-    paymentMethod: "vodafone_cash",
-    paymentAmount: 950,
-    receiptImageUrl: "https://images.pexels.com/photos/4386370/pexels-photo-4386370.jpeg?auto=compress&cs=tinysrgb&w=800",
-    senderPhone: "01098765432",
-    referenceNumber: "VF-98432176",
-    status: "confirmed",
-    adminNotes: "تم التحقق من إيصال فودافون كاش وتأكيد الحجز بنجاح مع مالك العقار.",
-    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-  }
-];
-
-export function getAllBookings(): StudentBooking[] {
-  if (typeof window === "undefined") return INITIAL_BOOKINGS;
+/**
+ * جلب حجوزات الطالب الحالي من قاعدة البيانات
+ */
+export async function getStudentBookingsApi(): Promise<StudentBooking[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_BOOKINGS_KEY);
-    if (!raw) {
-      localStorage.setItem(STORAGE_BOOKINGS_KEY, JSON.stringify(INITIAL_BOOKINGS));
-      return INITIAL_BOOKINGS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_BOOKINGS;
-  } catch (e) {
-    return INITIAL_BOOKINGS;
+    const res = await fetch("/api/bookings/my-bookings");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Failed to fetch student bookings:", err);
+    return [];
   }
 }
 
-export function saveBookings(list: StudentBooking[]): void {
-  if (typeof window === "undefined") return;
+/**
+ * إنشاء حجز جديد في قاعدة البيانات (PostgreSQL)
+ */
+export async function createBookingApi(data: {
+  propertyId: number;
+  paymentMethod: string;
+  paymentAmount: number;
+  receiptImageUrl?: string;
+  senderPhone?: string;
+  referenceNumber?: string;
+}): Promise<StudentBooking> {
+  const res = await fetch("/api/bookings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "فشل تسجيل الحجز في قاعدة البيانات");
+  }
+
+  return await res.json();
+}
+
+/**
+ * جلب حجوزات المالك للوحدات التي يملكها فقط
+ */
+export async function getOwnerBookingsApi(): Promise<StudentBooking[]> {
   try {
-    localStorage.setItem(STORAGE_BOOKINGS_KEY, JSON.stringify(list));
-  } catch (e) {
-    console.error("Failed to save bookings to localStorage:", e);
+    const res = await fetch("/api/bookings/owner-bookings");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Failed to fetch owner bookings:", err);
+    return [];
   }
 }
 
-export function createBooking(data: Omit<StudentBooking, "id" | "bookingCode" | "status" | "createdAt" | "updatedAt">): StudentBooking {
-  const current = getAllBookings();
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  const now = new Date().toISOString();
-
-  const newBooking: StudentBooking = {
-    ...data,
-    id: `book_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    bookingCode: `MKN-2024-${randomSuffix}`,
-    status: "pending_review",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const updated = [newBooking, ...current];
-  saveBookings(updated);
-  return newBooking;
+/**
+ * جلب كافة الحجوزات للآدمن
+ */
+export async function getAdminBookingsApi(): Promise<StudentBooking[]> {
+  try {
+    const res = await fetch("/api/bookings/admin");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error("Failed to fetch admin bookings:", err);
+    return [];
+  }
 }
 
-export function updateBookingStatus(
-  bookingId: string, 
+/**
+ * تحديث حالة الحجز بواسطة الآدمن
+ */
+export async function updateBookingStatusApi(
+  bookingId: string,
   status: "pending_review" | "confirmed" | "rejected",
   adminNotes?: string
-): StudentBooking | null {
-  const list = getAllBookings();
-  const index = list.findIndex((b) => b.id === bookingId);
-  if (index === -1) return null;
-
-  const updated: StudentBooking = {
-    ...list[index],
-    status,
-    adminNotes: adminNotes || list[index].adminNotes,
-    updatedAt: new Date().toISOString(),
-  };
-
-  list[index] = updated;
-  saveBookings(list);
-  return updated;
+): Promise<StudentBooking | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, adminNotes }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to update booking status:", err);
+    return null;
+  }
 }
 
-export function getStudentBookings(studentIdOrEmail?: string): StudentBooking[] {
-  if (!studentIdOrEmail || !studentIdOrEmail.trim()) return [];
-  const all = getAllBookings();
-  const normalized = studentIdOrEmail.trim().toLowerCase();
-  return all.filter((b) => 
-    b.studentId === studentIdOrEmail.trim() || 
-    (b.studentEmail && b.studentEmail.toLowerCase() === normalized)
-  );
+// Fallback synchronous methods kept for backward compatibility where needed
+export function getAllBookings(): StudentBooking[] {
+  return [];
+}
+
+export function getStudentBookings(_studentIdOrEmail?: string): StudentBooking[] {
+  return [];
+}
+
+export function updateBookingStatus(_bookingId: string, _status: any, _notes?: string): StudentBooking | null {
+  return null;
+}
+
+export function createBooking(_data: any): StudentBooking {
+  throw new Error("Use createBookingApi for PostgreSQL persistence");
 }
 
 /**
@@ -144,22 +146,30 @@ export function getStudentBookings(studentIdOrEmail?: string): StudentBooking[] 
 export function buildWhatsAppBookingUrl(booking: StudentBooking): string {
   const adminWhatsAppNumber = "201055332242"; // رقم الواتساب المخصص للإدارة
   
+  const title = booking.propertyTitle || booking.property?.title || "شقة سكنية طلابية";
+  const address = booking.propertyAddress || booking.property?.address || "كفر الشيخ";
+  const price = booking.propertyPrice || booking.property?.pricePerMonth || booking.paymentAmount;
+  const sName = booking.studentName || booking.student?.fullName || "طالب محجوز";
+  const sNationalId = booking.studentNationalId || booking.student?.nationalId || "14 رقم قومي";
+  const sPhone = booking.studentPhone || booking.student?.phoneNumber || "";
+  const sUni = booking.studentUniversity || booking.student?.university || "";
+
   const text = `السلام عليكم ورحمة الله،
 لقد قمت بحجز وحدة سكنية عبر منصة مكاني (MKANY Student Housing) ورفعت إيصال الدفع اليدوي:
 
 📋 *بيانات الحجز:*
 - كود الحجز: ${booking.bookingCode}
-- اسم الطالب: ${booking.studentName}
-- الرقم القومي: ${booking.studentNationalId}
-- رقم هاتف الطالب: ${booking.studentPhone}
-- الجامعة: ${booking.studentUniversity}
+- اسم الطالب: ${sName}
+- الرقم القومي: ${sNationalId}
+- رقم هاتف الطالب: ${sPhone}
+- الجامعة: ${sUni}
 
 🏠 *بيانات السكن:*
-- الوحدة: ${booking.propertyTitle}
-- العنوان: ${booking.propertyAddress}
-- الإيجار: ${booking.propertyPrice} جنيه/شهر
+- الوحدة: ${title}
+- العنوان: ${address}
+- الإيجار: ${price} جنيه/شهر
 - طريقة التحويل: ${booking.paymentMethod === "vodafone_cash" ? "فودافون كاش" : booking.paymentMethod === "instapay" ? "إنستاباي" : "تحويل بنكي"}
-- رقم المحول منه: ${booking.senderPhone || booking.studentPhone}
+- رقم المحول منه: ${booking.senderPhone || sPhone}
 - رقم المرجع: ${booking.referenceNumber || "مرفق بالإيصال"}
 
 مرفق سكرين شات الإيصال عبر المنصة. أرجو المراجعة وتأكيد الحجز. شكراً جزيلاً!`;

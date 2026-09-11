@@ -49,6 +49,7 @@ import {
   deleteApartmentApi, 
   updateApartmentApi 
 } from "@/lib/api-client";
+import { getOwnerBookingsApi, StudentBooking } from "@/lib/bookings-store";
 import { InspectionRequestModal } from "./InspectionRequestModal";
 import { OwnerApartmentModal } from "./OwnerApartmentModal";
 
@@ -65,7 +66,7 @@ export function OwnerDashboard({
 }: OwnerDashboardProps) {
   const { isSignedIn, user, openSignIn } = useAuth();
   
-  const [activeTab, setActiveTab] = useState<"units" | "inspections">("units");
+  const [activeTab, setActiveTab] = useState<"units" | "inspections" | "bookings">("units");
   const [isAddApartmentModalOpen, setIsAddApartmentModalOpen] = useState(false);
   const [isAddInspectionModalOpen, setIsAddInspectionModalOpen] = useState(false);
   const [editingApartment, setEditingApartment] = useState<PlatformProperty | null>(null);
@@ -73,10 +74,27 @@ export function OwnerDashboard({
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // جلب طلبات المعاينة والعقارات المنشورة
+  // جلب طلبات المعاينة والعقارات المنشورة والحجوزات
   const [allInspections, setAllInspections] = useState<PropertyInspection[]>(() => getAllInspections());
   const [allProperties, setAllProperties] = useState<PlatformProperty[]>(() => getAllPlatformProperties());
   const [dbOwnerApartments, setDbOwnerApartments] = useState<PlatformProperty[]>([]);
+  const [ownerBookings, setOwnerBookings] = useState<StudentBooking[]>([]);
+
+  const fetchOwnerBookings = async () => {
+    if (!isSignedIn) return;
+    try {
+      const bookings = await getOwnerBookingsApi();
+      setOwnerBookings(bookings);
+    } catch (e) {
+      console.error("Failed to fetch owner bookings:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (isSignedIn) {
+      fetchOwnerBookings();
+    }
+  }, [isSignedIn]);
 
   // تحميل الوحدات المسجلة لهذا المالك من قاعدة البيانات
   const fetchOwnerApartments = async () => {
@@ -405,6 +423,19 @@ export function OwnerDashboard({
         >
           <Camera size={18} />
           سجل ومتابعة المعاينات 360° ({ownerInspections.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab("bookings")}
+          className={`flex-1 rounded-xl py-3 transition-all flex items-center justify-center gap-2 ${
+            activeTab === "bookings"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="tab-owner-bookings"
+        >
+          <FileText size={18} />
+          حجوزات وحداتك ({ownerBookings.length})
         </button>
       </div>
 
@@ -796,6 +827,61 @@ export function OwnerDashboard({
                         <p>{insp.inspectorReport}</p>
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* محتوى التبويب الثالث: حجوزات وحدات المالك */}
+      {activeTab === "bookings" && (
+        <div className="mt-6 space-y-6">
+          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-foreground">حجوزات الوحدات السكنية المملوكة لك</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  جميع الحجوزات المقدمة على عقاراتك المعتمدة معالجة عبر إدارة مكاني الرسمية.
+                </p>
+              </div>
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
+                {ownerBookings.length} حجز
+              </span>
+            </div>
+
+            {ownerBookings.length === 0 ? (
+              <div className="py-12 text-center">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                  <FileText size={24} />
+                </div>
+                <h3 className="text-base font-bold text-foreground">لا توجد حجوزات حالية</h3>
+                <p className="mt-1 text-xs text-muted-foreground">عندما يقوم الطلاب بطلب حجز وحداتك السكنية ورفع الإيصالات، ستظهر طلباتهم هنا.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {ownerBookings.map((b) => (
+                  <div key={b.id} className="rounded-xl border border-border bg-background p-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-xs font-extrabold text-primary">{b.bookingCode}</span>
+                        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                          b.status === "confirmed" ? "bg-emerald-500/15 text-emerald-600" :
+                          b.status === "rejected" ? "bg-rose-500/15 text-rose-600" : "bg-amber-500/15 text-amber-600"
+                        }`}>
+                          {b.status === "confirmed" ? "مؤكد ومعتمد" : b.status === "rejected" ? "مرفوض" : "قيد المراجعة الإدارية"}
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-bold text-foreground">{b.propertyTitle || b.property?.title || "وحدة سكنية"}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">الإيجار المالي: {b.paymentAmount} ج.م/شهر</p>
+                      <p className="text-xs text-muted-foreground">طريقة الدفع: {b.paymentMethod === "vodafone_cash" ? "فودافون كاش" : b.paymentMethod === "instapay" ? "إنستاباي" : "تحويل بنكي"}</p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-border/60 text-[11px] text-muted-foreground flex items-center justify-between">
+                      <span>تاريخ الحجز: {new Date(b.createdAt).toLocaleDateString("ar-EG")}</span>
+                      <span className="font-semibold text-primary">إدارة مكاني</span>
+                    </div>
                   </div>
                 ))}
               </div>

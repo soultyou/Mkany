@@ -20,7 +20,7 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { useAuth } from "@/components/auth/clerk-auth";
-import { createBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
+import { createBookingApi, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 
 interface BookingReceiptFlowProps {
@@ -103,7 +103,7 @@ export function BookingReceiptFlow({
   };
 
   // تأكيد رفع الإيصال والتوجيه التلقائي إلى واتساب
-  const handleSubmitBookingAndReceipt = (e: React.FormEvent) => {
+  const handleSubmitBookingAndReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!receiptImageUrl) {
@@ -114,19 +114,8 @@ export function BookingReceiptFlow({
     setIsSubmitting(true);
 
     try {
-      const newBooking = createBooking({
+      const savedBooking = await createBookingApi({
         propertyId: property.id,
-        propertyTitle: property.title,
-        propertyAddress: property.address,
-        propertyImage: property.images[0] || "",
-        propertyPrice: property.pricePerMonth,
-        propertyUniversity: property.university,
-        studentId: user?.id || `student_${Date.now()}`,
-        studentName,
-        studentPhone,
-        studentNationalId,
-        studentUniversity,
-        studentEmail: user?.email || "student@mkany.eg",
         paymentMethod,
         paymentAmount: property.pricePerMonth,
         receiptImageUrl,
@@ -134,12 +123,26 @@ export function BookingReceiptFlow({
         referenceNumber: referenceNumber || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
       });
 
-      setCompletedBooking(newBooking);
+      const fullBooking = {
+        ...savedBooking,
+        propertyTitle: property.title,
+        propertyAddress: property.address,
+        propertyImage: property.images[0] || "",
+        propertyPrice: property.pricePerMonth,
+        propertyUniversity: property.university,
+        studentName,
+        studentPhone,
+        studentNationalId,
+        studentUniversity,
+        studentEmail: user?.email || "student@mkany.eg",
+      };
+
+      setCompletedBooking(fullBooking);
       setStep(3);
       setIsSubmitting(false);
 
       // تجهيز رابط الواتساب والتوجيه التلقائي الفوري
-      const waUrl = buildWhatsAppBookingUrl(newBooking);
+      const waUrl = buildWhatsAppBookingUrl(fullBooking);
       
       // فتح الواتساب تلقائياً في نافذة جديدة
       setTimeout(() => {
@@ -151,10 +154,10 @@ export function BookingReceiptFlow({
         }
       }, 700);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setIsSubmitting(false);
-      openToast("حدث خطأ أثناء حفظ الحجز، يرجى المحاولة ثانية");
+      openToast(err?.message || "حدث خطأ أثناء حفظ الحجز، يرجى المحاولة ثانية");
     }
   };
 
