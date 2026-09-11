@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
 import { Clerk } from "@clerk/clerk-js";
+import { updateProfile, getProfile, setAuthTokenGetter } from "@workspace/api-client-react";
 
 export const EGYPTIAN_UNIVERSITIES = [
   "جامعة كفر الشيخ", "جامعة المنصورة", "جامعة طنطا", "جامعة الإسكندرية", "جامعة القاهرة",
@@ -67,31 +68,67 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       console.log("Clerk key prefix:", publishableKey.slice(0, 12));
     }
 
+    let unsubscribe: (() => void) | undefined;
+
     const initClerk = async () => {
       if (!clerkInstance) {
         clerkInstance = new Clerk(publishableKey);
       }
       try {
-        await clerkInstance.load({});
-        console.log({ clerkLoaded: true, origin: window.location.origin });
+        if (!clerkLoaded) {
+          await clerkInstance.load({});
+          console.log({ clerkLoaded: true, origin: window.location.origin });
+        }
         
-        clerkInstance.addListener(({ user, session }) => {
+        unsubscribe = clerkInstance.addListener(async ({ user, session }) => {
           setIsSignedIn(!!session);
+          
+          if (session && window.name === 'clerk-auth-popup') {
+            window.close();
+            return;
+          }
+          
+          if (session) {
+            setAuthTokenGetter(async () => await session.getToken());
+          } else {
+            setAuthTokenGetter(null);
+          }
+
           if (user) {
-            setSessionUser({
-              id: user.id,
-              fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
-              email: user.primaryEmailAddress?.emailAddress || "",
-              avatarUrl: user.imageUrl,
-              role: localRole || (user.publicMetadata?.role as "student" | "owner" | "admin") || "student",
-              university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
-              city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
-              nationalId: (user.unsafeMetadata?.nationalId as string) || "",
-              phoneNumber: (user.unsafeMetadata?.phoneNumber as string) || "",
-              unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
-              propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
-              isVerified: (user.publicMetadata?.isVerified as boolean) || false,
+            setSessionUser(prevSessionUser => {
+              const currentRole = prevSessionUser?.role || (user.publicMetadata?.role as "student" | "owner" | "admin") || "student";
+              return {
+                id: user.id,
+                fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
+                email: user.primaryEmailAddress?.emailAddress || "",
+                avatarUrl: user.imageUrl,
+                role: currentRole,
+                university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
+                city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
+                nationalId: (user.unsafeMetadata?.nationalId as string) || "",
+                phoneNumber: (user.unsafeMetadata?.phoneNumber as string) || "",
+                unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
+                propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
+                isVerified: (user.publicMetadata?.isVerified as boolean) || false,
+              };
             });
+            
+            if (session) {
+              try {
+                const profile = await getProfile();
+                setSessionUser(prev => prev ? {
+                  ...prev,
+                  fullName: profile.fullName || prev.fullName,
+                  university: profile.university || prev.university,
+                  nationalId: profile.nationalId || prev.nationalId,
+                  phoneNumber: profile.phoneNumber || prev.phoneNumber,
+                  role: (profile.role as "student" | "owner" | "admin") || prev.role,
+                  isVerified: profile.isVerified || prev.isVerified,
+                } : null);
+              } catch (e) {
+                console.error("Failed to fetch profile from DB", e);
+              }
+            }
           } else {
             setSessionUser(null);
           }
@@ -105,7 +142,13 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     };
 
     initClerk();
-  }, [localRole]);
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, []);
 
   const switchRole = (role: "student" | "owner" | "admin") => {
     setLocalRole(role);
@@ -115,14 +158,32 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     onToast?.(`تم التبديل إلى حساب ${role === 'owner' ? 'المالك' : role === 'admin' ? 'المشرف' : 'الطالب'}`);
   };
 
-  const updateUserProfile = (data: Partial<StudentUser>) => {
+  const updateUserProfile = async (data: Partial<StudentUser>) => {
     if (data.role) {
       setLocalRole(data.role);
     }
     if (sessionUser) {
       setSessionUser({ ...sessionUser, ...data });
     }
-    onToast?.("تم تحديث بيانات الحساب.");
+    
+    const backendData: any = {};
+    if (data.fullName !== undefined) backendData.fullName = data.fullName;
+    if (data.nationalId !== undefined) backendData.nationalId = data.nationalId;
+    if (data.phoneNumber !== undefined) backendData.phoneNumber = data.phoneNumber;
+    if (data.university !== undefined) backendData.university = data.university;
+    if (data.avatarUrl !== undefined) backendData.avatarUrl = data.avatarUrl;
+    
+    if (Object.keys(backendData).length > 0 && isSignedIn) {
+       try {
+           await updateProfile(backendData);
+           onToast?.("تم تحديث بيانات الحساب.");
+       } catch (error) {
+           console.error("Failed to update profile to backend", error);
+           onToast?.("تم الحفظ محلياً ولكن حدث خطأ في المزامنة مع الخادم");
+       }
+    } else {
+       onToast?.("تم تحديث بيانات الحساب.");
+    }
   };
 
   if (clerkError) {
@@ -156,8 +217,18 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       isLoaded: clerkLoaded,
       updateUserProfile,
       switchRole,
-      openSignIn: (props?: any) => clerkInstance?.openSignIn(props),
-      openSignUp: (props?: any) => clerkInstance?.openSignUp(props),
+      openSignIn: (props?: any) => {
+        if (clerkInstance) {
+          const signInUrl = clerkInstance.buildSignInUrl({ redirectUrl: window.location.href });
+          window.open(signInUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
+        }
+      },
+      openSignUp: (props?: any) => {
+        if (clerkInstance) {
+          const signUpUrl = clerkInstance.buildSignUpUrl({ redirectUrl: window.location.href });
+          window.open(signUpUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
+        }
+      },
       signOut: async () => { await clerkInstance?.signOut(); },
       localRoleOverride: localRole
     }}>
@@ -195,11 +266,11 @@ export function SignedOut({ children }: { children: React.ReactNode }) {
 
 export function SignInButton({ children, mode, ...props }: any) {
   const { openSignIn } = useAuth();
-  const child = React.Children.only(children) as React.ReactElement;
+  const child = React.Children.only(children) as React.ReactElement<any>;
   
   return React.cloneElement(child, {
     onClick: (e: any) => {
-      if (child.props.onClick) {
+      if (child.props && child.props.onClick) {
         child.props.onClick(e);
       }
       openSignIn(props);
@@ -209,11 +280,11 @@ export function SignInButton({ children, mode, ...props }: any) {
 
 export function SignUpButton({ children, mode, ...props }: any) {
   const { openSignUp } = useAuth();
-  const child = React.Children.only(children) as React.ReactElement;
+  const child = React.Children.only(children) as React.ReactElement<any>;
   
   return React.cloneElement(child, {
     onClick: (e: any) => {
-      if (child.props.onClick) {
+      if (child.props && child.props.onClick) {
         child.props.onClick(e);
       }
       openSignUp(props);

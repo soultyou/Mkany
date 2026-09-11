@@ -15,6 +15,20 @@
       "when": 1789082652807,
       "tag": "0001_align_clerk_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789091842729,
+      "tag": "0002_flaky_clint_barton",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789092068330,
+      "tag": "0003_striped_fabian_cortez",
+      "breakpoints": true
     }
   ]
 }
