@@ -1,4 +1,14 @@
 import { getDerivedAmenityCoords, getCityDefaultCoordinates } from "./geo-utils";
+import {
+  uploadSingleImageApi,
+  uploadMultipleImagesApi,
+  getInspectionsApi,
+  getInspectionByIdApi,
+  createInspectionApi,
+  updateInspectionApi,
+  publishInspectionApi,
+  getApartmentsApi,
+} from "./api-client";
 
 /**
  * نظام إدارة طلبات المعاينة وتوثيق العقارات (Inspection Cycle & Properties Store)
@@ -520,19 +530,7 @@ export const PROPERTIES_CHANGE_EVENT = "mkany_properties_updated";
  * Upload single image file to server storage
  */
 export async function uploadImageFile(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("image", file);
-
-  const res = await fetch("/api/upload/single", {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    throw new Error("Failed to upload image");
-  }
-
-  const data = await res.json();
+  const data = await uploadSingleImageApi(file);
   return data.url;
 }
 
@@ -541,21 +539,7 @@ export async function uploadImageFile(file: File): Promise<string> {
  */
 export async function uploadImageFiles(files: File[]): Promise<string[]> {
   if (files.length === 0) return [];
-  const formData = new FormData();
-  for (const f of files) {
-    formData.append("images", f);
-  }
-
-  const res = await fetch("/api/upload/multiple", {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    throw new Error("Failed to upload images");
-  }
-
-  const data = await res.json();
+  const data = await uploadMultipleImagesApi(files);
   return data.urls;
 }
 
@@ -564,16 +548,13 @@ export async function uploadImageFiles(files: File[]): Promise<string[]> {
  */
 export async function syncInspectionsFromApi(): Promise<PropertyInspection[]> {
   try {
-    const res = await fetch("/api/inspections");
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        saveInspections(data);
-        return data;
-      }
+    const data = await getInspectionsApi();
+    if (Array.isArray(data) && data.length > 0) {
+      saveInspections(data);
+      return data;
     }
   } catch (err) {
-    console.warn("Failed to sync inspections from DB API:", err);
+    console.warn("Could not sync inspections from API:", err);
   }
   return getAllInspections();
 }
@@ -630,21 +611,15 @@ export function createInspectionRequest(
   const updated = [newInspection, ...current];
   saveInspections(updated);
 
-  // Send to backend PostgreSQL API
-  fetch("/api/inspections", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(newInspection),
-  }).then(async (res) => {
-    if (res.ok) {
-      const saved = await res.json();
-      console.log("Inspection successfully saved to Supabase PostgreSQL:", saved.id);
-    }
-  }).catch((err) => {
-    console.error("Error persisting inspection to API:", err);
-  });
+  // Send to backend PostgreSQL API with Bearer token
+  createInspectionApi(data)
+    .then((saved) => {
+      const refreshed = [saved, ...getAllInspections().filter((x) => x.id !== id && x.id !== saved.id)];
+      saveInspections(refreshed);
+    })
+    .catch((err) => {
+      console.error("Error persisting inspection to API:", err);
+    });
 
   return newInspection;
 }
@@ -656,39 +631,12 @@ export async function createInspectionRequestAsync(
   data: Omit<PropertyInspection, "id" | "status" | "createdAt" | "updatedAt">
 ): Promise<PropertyInspection> {
   const current = getAllInspections();
-  const now = new Date().toISOString();
-  const id = `insp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-  const newInspection: PropertyInspection = {
-    ...data,
-    id,
-    status: "pending",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  try {
-    const res = await fetch("/api/inspections", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(newInspection),
-    });
-
-    if (res.ok) {
-      const saved = await res.json();
-      const updated = [saved, ...current.filter((x) => x.id !== saved.id)];
-      saveInspections(updated);
-      return saved;
-    }
-  } catch (e) {
-    console.error("Error creating inspection via API:", e);
-  }
-
-  const updated = [newInspection, ...current];
+  // Call the authenticated API - throws on 401/403/500 so UI can display proper error
+  const saved = await createInspectionApi(data);
+  const updated = [saved, ...current.filter((x) => x.id !== saved.id)];
   saveInspections(updated);
-  return newInspection;
+  return saved;
 }
 
 /**
@@ -716,16 +664,12 @@ export function scheduleInspectionVisit(
   list[index] = updated;
   saveInspections(list);
 
-  // Sync to PostgreSQL backend
-  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      status: "scheduled",
-      scheduledDate,
-      inspectorName,
-      inspectorReport: inspectorNotes || list[index].inspectorReport,
-    }),
+  // Sync to PostgreSQL backend via authenticated API
+  updateInspectionApi(id, {
+    status: "scheduled",
+    scheduledDate,
+    inspectorName,
+    inspectorReport: inspectorNotes || list[index].inspectorReport,
   }).catch((e) => console.error("Failed to patch inspection schedule in DB:", e));
 
   return updated;
@@ -754,15 +698,11 @@ export function markInspectionCompleted(
   list[index] = updated;
   saveInspections(list);
 
-  // Sync to PostgreSQL backend
-  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      status: "inspected",
-      inspectorReport,
-      livabilityScore,
-    }),
+  // Sync to PostgreSQL backend via authenticated API
+  updateInspectionApi(id, {
+    status: "inspected",
+    inspectorReport,
+    livabilityScore,
   }).catch((e) => console.error("Failed to patch inspection completion in DB:", e));
 
   return updated;
@@ -789,14 +729,10 @@ export function rejectInspectionRequest(
   list[index] = updated;
   saveInspections(list);
 
-  // Sync to PostgreSQL backend
-  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      status: "rejected",
-      rejectionReason,
-    }),
+  // Sync to PostgreSQL backend via authenticated API
+  updateInspectionApi(id, {
+    status: "rejected",
+    rejectionReason,
   }).catch((e) => console.error("Failed to patch inspection rejection in DB:", e));
 
   return updated;
@@ -807,42 +743,39 @@ export function rejectInspectionRequest(
  */
 export async function syncPlatformPropertiesFromApi(): Promise<PlatformProperty[]> {
   try {
-    const res = await fetch("/api/apartments");
-    if (res.ok) {
-      const dbApartments = await res.json();
-      if (Array.isArray(dbApartments) && dbApartments.length > 0) {
-        const mapped: PlatformProperty[] = dbApartments.map((a: any) => ({
-          id: a.id,
-          title: a.title,
-          address: a.address,
-          city: a.city,
-          university: a.university,
-          pricePerMonth: a.pricePerMonth || a.price,
-          roomType: a.roomType || "شقة مشتركة",
-          areaSqm: a.areaSqm,
-          bedrooms: a.bedrooms,
-          bathrooms: a.bathrooms,
-          floor: a.floor,
-          furnishing: a.furnishing,
-          availableFrom: a.availableFrom || "متاح الآن فوراً",
-          currentRoommates: a.currentRoommates || 0,
-          images: Array.isArray(a.images) && a.images.length > 0
-            ? a.images
-            : (a.photos && a.photos.length > 0 ? a.photos.map((p: any) => p.url) : []),
-          video360Url: a.video360Url || null,
-          verified: a.verified ?? true,
-          premium: a.premium ?? true,
-          livabilityScore: a.livabilityScore || 90,
-          status: a.status || "متاح",
-          ownerId: a.ownerId,
-          inspectionId: a.inspectionId,
-          lat: a.lat,
-          lng: a.lng,
-          nearbyAmenities: a.nearbyAmenities || getEffectiveAmenities(a),
-        }));
-        savePlatformProperties(mapped);
-        return mapped;
-      }
+    const dbApartments = await getApartmentsApi();
+    if (Array.isArray(dbApartments) && dbApartments.length > 0) {
+      const mapped: PlatformProperty[] = dbApartments.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        address: a.address,
+        city: a.city,
+        university: a.university,
+        pricePerMonth: a.pricePerMonth || a.price,
+        roomType: a.roomType || "شقة مشتركة",
+        areaSqm: a.areaSqm,
+        bedrooms: a.bedrooms,
+        bathrooms: a.bathrooms,
+        floor: a.floor,
+        furnishing: a.furnishing,
+        availableFrom: a.availableFrom || "متاح الآن فوراً",
+        currentRoommates: a.currentRoommates || 0,
+        images: Array.isArray(a.images) && a.images.length > 0
+          ? a.images
+          : (a.photos && a.photos.length > 0 ? a.photos.map((p: any) => p.url) : []),
+        video360Url: a.video360Url || null,
+        verified: a.verified ?? true,
+        premium: a.premium ?? true,
+        livabilityScore: a.livabilityScore || 90,
+        status: a.status || "متاح",
+        ownerId: a.ownerId,
+        inspectionId: a.inspectionId,
+        lat: a.lat,
+        lng: a.lng,
+        nearbyAmenities: a.nearbyAmenities || getEffectiveAmenities(a),
+      }));
+      savePlatformProperties(mapped);
+      return mapped;
     }
   } catch (err) {
     console.warn("Failed to sync apartments from DB API:", err);
@@ -967,27 +900,39 @@ export function activateAndPublishProperty(
   inspections[index] = updatedInspection;
   saveInspections(inspections);
 
-  // Sync publish operation to backend PostgreSQL
-  fetch(`/api/inspections/${encodeURIComponent(inspectionId)}/publish`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      video360Url: video360,
-      finalImages: images,
-      livabilityScore: score,
-      inspectorReport: details.inspectorReport || insp.inspectorReport,
-      nearbyAmenities: amenities,
-    }),
-  }).then(async (res) => {
-    if (res.ok) {
-      const data = await res.json();
-      console.log("Property successfully published to PostgreSQL database:", data);
-    }
+  // Sync publish operation to backend PostgreSQL using authenticated api-client
+  publishInspectionApi(inspectionId, {
+    video360Url: video360,
+    finalImages: images,
+    livabilityScore: score,
+    inspectorReport: details.inspectorReport || insp.inspectorReport,
+    nearbyAmenities: amenities,
   }).catch((err) => {
-    console.error("Error publishing to database:", err);
+    console.error("Error publishing property to database:", err);
   });
 
   return { inspection: updatedInspection, property: newProperty };
+}
+
+/**
+ * النسخة غير المتزامنة لنشر وتفعيل العقار بعد المعاينة
+ */
+export async function activateAndPublishPropertyAsync(
+  inspectionId: string,
+  details: {
+    video360Url?: string;
+    finalImages?: string[];
+    livabilityScore?: number;
+    inspectorReport?: string;
+    nearbyAmenities?: NearbyAmenities;
+  }
+): Promise<{ inspection: PropertyInspection; property: PlatformProperty } | null> {
+  const result = await publishInspectionApi(inspectionId, details);
+  if (result) {
+    await syncInspectionsFromApi();
+    await syncPlatformPropertiesFromApi();
+  }
+  return activateAndPublishProperty(inspectionId, details);
 }
 
 // Auto-sync initial data on browser startup

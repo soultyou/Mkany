@@ -1,80 +1,37 @@
 import { Router } from "express";
-import { db, inspections, apartments, apartmentPhotos, users } from "@workspace/db";
+import { db, inspections, apartments, apartmentPhotos } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { getAuth } from "@clerk/express";
+import { requireAuth, requireAdmin } from "../middlewares/auth";
 
 const router = Router();
 
-// Helper to resolve authenticated user from request
-async function getAuthenticatedUser(req: any) {
-  const auth = getAuth(req);
-  if (!auth || !auth.userId) {
-    return null;
-  }
-
+// GET /api/inspections - List inspections with role-aware data isolation (Requires Auth)
+router.get("/", requireAuth, async (req, res) => {
   try {
-    const user = await db.query.users.findFirst({
-      where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
-    });
-    return { auth, dbUser: user };
-  } catch (err) {
-    console.error("Error finding user by Clerk ID:", err);
-    return { auth, dbUser: null };
-  }
-}
-
-// Helper to ensure a user exists in DB when creating inspection
-async function getOrCreateOwner(ownerId: string, ownerName: string, ownerEmail: string, ownerPhone: string, university: string) {
-  try {
-    let existingUser = await db.query.users.findFirst({
-      where: or(eq(users.id, ownerId), eq(users.clerkUserId, ownerId)),
-    });
-
-    if (!existingUser && ownerEmail) {
-      existingUser = await db.query.users.findFirst({
-        where: eq(users.email, ownerEmail),
-      });
-    }
-
-    if (!existingUser) {
-      const [newUser] = await db.insert(users).values({
-        id: ownerId,
-        clerkUserId: ownerId.startsWith("user_") ? ownerId : undefined,
-        fullName: ownerName || "مالك عقار",
-        nationalId: "28500000000000",
-        phoneNumber: ownerPhone || "01000000000",
-        email: ownerEmail || `owner_${Date.now()}@mkany.eg`,
-        university: university || "جامعة كفر الشيخ",
-        role: "owner",
-        isVerified: true,
-      }).returning();
-      return newUser;
-    }
-
-    return existingUser;
-  } catch (err) {
-    console.error("Error in getOrCreateOwner:", err);
-    return null;
-  }
-}
-
-// GET /api/inspections - List inspections with role-aware data isolation
-router.get("/", async (req, res) => {
-  try {
-    const authContext = await getAuthenticatedUser(req);
+    const dbUser = req.dbUser!;
+    const auth = getAuth(req);
     const { ownerId, status } = req.query;
     const conditions = [];
 
-    // If user is authenticated and is NOT an admin, only allow seeing their own inspections
-    if (authContext?.dbUser && authContext.dbUser.role !== "admin") {
+    // Admins can see all inspections or filter by ownerId
+    if (dbUser.role === "admin") {
+      if (ownerId && typeof ownerId === "string") {
+        conditions.push(eq(inspections.ownerId, ownerId));
+      }
+    } else {
+      // Non-admins (owners, students) can ONLY see their own inspections
+      const myIds: string[] = [dbUser.id];
+      if (dbUser.clerkUserId && !myIds.includes(dbUser.clerkUserId)) {
+        myIds.push(dbUser.clerkUserId);
+      }
+      if (auth.userId && !myIds.includes(auth.userId)) {
+        myIds.push(auth.userId);
+      }
+
       conditions.push(
-        or(
-          eq(inspections.ownerId, authContext.dbUser.id),
-          eq(inspections.ownerId, authContext.auth.userId)
-        )
+        or(...myIds.map((idVal) => eq(inspections.ownerId, idVal)))
       );
-    } else if (ownerId && typeof ownerId === "string") {
-      conditions.push(eq(inspections.ownerId, ownerId));
     }
 
     if (status && typeof status === "string") {
@@ -95,10 +52,13 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/inspections/:id - Get single inspection with privacy check
-router.get("/:id", async (req, res) => {
+// GET /api/inspections/:id - Get single inspection with strict privacy check (Requires Auth)
+router.get("/:id", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const dbUser = req.dbUser!;
+    const auth = getAuth(req);
+
     const item = await db.query.inspections.findFirst({
       where: eq(inspections.id, id),
     });
@@ -107,16 +67,18 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Inspection not found" });
     }
 
-    // Role-based privacy: If authenticated non-admin, ensure it belongs to them
-    const authContext = await getAuthenticatedUser(req);
-    if (authContext?.dbUser && authContext.dbUser.role !== "admin") {
-      const isOwner =
-        item.ownerId === authContext.dbUser.id ||
-        item.ownerId === authContext.auth.userId ||
-        item.ownerId === authContext.dbUser.clerkUserId;
-      if (!isOwner) {
-        return res.status(403).json({ error: "Forbidden", message: "Cannot access inspection belonging to another user" });
-      }
+    // Role-based privacy: Admin can view all; Non-admin can only view their own
+    const isAdmin = dbUser.role === "admin";
+    const isOwner =
+      item.ownerId === dbUser.id ||
+      item.ownerId === auth.userId ||
+      (dbUser.clerkUserId !== null && dbUser.clerkUserId !== undefined && item.ownerId === dbUser.clerkUserId);
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Cannot access inspection belonging to another user",
+      });
     }
 
     return res.json(item);
@@ -126,26 +88,19 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// POST /api/inspections - Create inspection request with verified identity
-router.post("/", async (req, res) => {
+// POST /api/inspections - Create inspection request with verified identity (Requires Auth)
+router.post("/", requireAuth, async (req, res) => {
   try {
-    const authContext = await getAuthenticatedUser(req);
+    const dbUser = req.dbUser!;
+    const auth = getAuth(req);
     const body = req.body;
 
-    // Derive owner identity: Prefer authenticated Clerk user
-    let ownerId = authContext?.auth?.userId || authContext?.dbUser?.id || body.ownerId;
-    if (!ownerId) {
-      // If no auth provided in development mode, fallback to default owner ID
-      ownerId = "usr_owner_01";
-    }
-
-    const ownerName = authContext?.dbUser?.fullName || body.ownerName || "مالك عقار";
-    const ownerEmail = authContext?.dbUser?.email || body.ownerEmail || `${ownerId}@mkany.eg`;
-    const ownerPhone = authContext?.dbUser?.phoneNumber || body.ownerPhone || "01000000000";
-    const university = body.university || "جامعة كفر الشيخ";
-
-    // Ensure owner user record exists
-    await getOrCreateOwner(ownerId, ownerName, ownerEmail, ownerPhone, university);
+    // Derive owner identity strictly from authenticated user context
+    const ownerId = dbUser.id || auth.userId!;
+    const ownerName = dbUser.fullName || body.ownerName || "مالك عقار";
+    const ownerEmail = dbUser.email || body.ownerEmail || `${ownerId}@mkany.eg`;
+    const ownerPhone = dbUser.phoneNumber || body.ownerPhone || "01000000000";
+    const university = body.university || dbUser.university || "جامعة كفر الشيخ";
 
     const id = body.id || `insp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date();
@@ -161,7 +116,7 @@ router.post("/", async (req, res) => {
         title: body.title || "طلب معاينة سكن طلابي",
         address: body.address || "",
         city: body.city || "كفر الشيخ",
-        university: body.university || "جامعة كفر الشيخ",
+        university,
         roomType: body.roomType || "شقة مشتركة",
         pricePerMonth: Number(body.pricePerMonth) || 800,
         areaSqm: Number(body.areaSqm) || 100,
@@ -187,12 +142,13 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PATCH /api/inspections/:id - Update inspection with strict authorization
-router.patch("/:id", async (req, res) => {
+// PATCH /api/inspections/:id - Update inspection with strict role authorization (Requires Auth)
+router.patch("/:id", requireAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const body = req.body;
-    const authContext = await getAuthenticatedUser(req);
+    const dbUser = req.dbUser!;
+    const auth = getAuth(req);
 
     const existing = await db.query.inspections.findFirst({
       where: eq(inspections.id, id),
@@ -202,42 +158,55 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Inspection not found" });
     }
 
-    // Authorization evaluation
-    const isAdmin = authContext?.dbUser?.role === "admin";
+    const isAdmin = dbUser.role === "admin";
     const isOwner =
-      authContext?.dbUser?.id === existing.ownerId ||
-      authContext?.auth?.userId === existing.ownerId ||
-      authContext?.dbUser?.clerkUserId === existing.ownerId;
+      dbUser.id === existing.ownerId ||
+      auth.userId === existing.ownerId ||
+      (dbUser.clerkUserId !== null && dbUser.clerkUserId !== undefined && dbUser.clerkUserId === existing.ownerId);
 
-    // In authenticated contexts, only the actual owner or an admin can modify
-    if (authContext && !isAdmin && !isOwner) {
+    // Only the verified owner or an admin can modify
+    if (!isAdmin && !isOwner) {
       return res.status(403).json({
         error: "Forbidden",
         message: "You are not authorized to modify this inspection record.",
       });
     }
 
-    // Prepare update payload based on role
     const updateData: Record<string, any> = {
       updatedAt: new Date(),
     };
 
-    // Admin-only fields (scheduling, inspector assignation, scoring, approving/rejecting)
-    if (isAdmin || !authContext) {
+    if (isAdmin) {
+      // Admin fields (scheduling, inspector assignment, scoring, approving/rejecting, 360 tour, final images)
       if (body.status !== undefined) updateData.status = body.status;
       if (body.scheduledDate !== undefined) updateData.scheduledDate = body.scheduledDate;
       if (body.inspectorName !== undefined) updateData.inspectorName = body.inspectorName;
       if (body.inspectorReport !== undefined) updateData.inspectorReport = body.inspectorReport;
-      if (body.livabilityScore !== undefined) updateData.livabilityScore = body.livabilityScore;
+      if (body.livabilityScore !== undefined) updateData.livabilityScore = Number(body.livabilityScore);
       if (body.rejectionReason !== undefined) updateData.rejectionReason = body.rejectionReason;
       if (body.video360Url !== undefined) updateData.video360Url = body.video360Url;
       if (body.finalImages !== undefined) updateData.finalImages = body.finalImages;
-    } else {
-      // Owner-restricted updates (can only update metadata, notes, preferred date or initial photos)
+      if (body.title !== undefined) updateData.title = body.title;
+      if (body.notes !== undefined) updateData.notes = body.notes;
+      if (body.preferredInspectionDate !== undefined) updateData.preferredInspectionDate = body.preferredInspectionDate;
+    } else if (isOwner) {
+      // Owner-restricted updates (can only update pre-inspection details, notes, preferred date, initial photos)
       if (body.title !== undefined) updateData.title = body.title;
       if (body.notes !== undefined) updateData.notes = body.notes;
       if (body.preferredInspectionDate !== undefined) updateData.preferredInspectionDate = body.preferredInspectionDate;
       if (body.initialPhotos !== undefined) updateData.initialPhotos = body.initialPhotos;
+      if (body.address !== undefined) updateData.address = body.address;
+      if (body.city !== undefined) updateData.city = body.city;
+      if (body.university !== undefined) updateData.university = body.university;
+      if (body.roomType !== undefined) updateData.roomType = body.roomType;
+      if (body.pricePerMonth !== undefined) updateData.pricePerMonth = Number(body.pricePerMonth);
+      if (body.areaSqm !== undefined) updateData.areaSqm = Number(body.areaSqm);
+      if (body.bedrooms !== undefined) updateData.bedrooms = Number(body.bedrooms);
+      if (body.bathrooms !== undefined) updateData.bathrooms = Number(body.bathrooms);
+      if (body.floor !== undefined) updateData.floor = body.floor;
+      if (body.furnishing !== undefined) updateData.furnishing = body.furnishing;
+      if (body.lat !== undefined) updateData.lat = Number(body.lat);
+      if (body.lng !== undefined) updateData.lng = Number(body.lng);
     }
 
     const [updated] = await db
@@ -253,21 +222,11 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// POST /api/inspections/:id/publish - Admin-only endpoint to approve inspection & publish property
-router.post("/:id/publish", async (req, res) => {
+// POST /api/inspections/:id/publish - Strict Admin-only endpoint to approve inspection & publish property
+router.post("/:id/publish", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const body = req.body;
-    const authContext = await getAuthenticatedUser(req);
-
-    // Strict Admin Authorization Check:
-    // Only administrators/staff are allowed to approve and publish inspection listings
-    if (authContext?.dbUser && authContext.dbUser.role !== "admin") {
-      return res.status(403).json({
-        error: "Forbidden",
-        message: "Only platform administrators can publish inspected properties.",
-      });
-    }
 
     const inspection = await db.query.inspections.findFirst({
       where: eq(inspections.id, id),
@@ -277,10 +236,9 @@ router.post("/:id/publish", async (req, res) => {
       return res.status(404).json({ error: "Inspection not found" });
     }
 
-    const apartmentId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date();
 
-    // 1. Create Apartment record in PostgreSQL
+    // 1. Determine images to persist
     const imagesToPersist: string[] =
       body.finalImages && body.finalImages.length > 0
         ? body.finalImages
@@ -288,6 +246,7 @@ router.post("/:id/publish", async (req, res) => {
         ? (inspection.finalImages as string[])
         : (inspection.initialPhotos as string[]) || [];
 
+    // 2. Create Apartment record in PostgreSQL
     const [apartment] = await db
       .insert(apartments)
       .values({
@@ -321,7 +280,7 @@ router.post("/:id/publish", async (req, res) => {
       })
       .returning();
 
-    // 2. Persist Apartment Photos in apartment_photos table
+    // 3. Persist Apartment Photos in apartment_photos table
     if (imagesToPersist.length > 0) {
       const photoValues = imagesToPersist.map((url, idx) => ({
         apartmentId: apartment.id,
@@ -335,7 +294,7 @@ router.post("/:id/publish", async (req, res) => {
       await db.insert(apartmentPhotos).values(photoValues);
     }
 
-    // 3. Update Inspection Status to Approved
+    // 4. Update Inspection Status to Approved
     const [updatedInspection] = await db
       .update(inspections)
       .set({

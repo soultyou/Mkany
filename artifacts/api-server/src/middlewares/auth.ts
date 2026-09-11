@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { db, users, type User } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { eq, or } from "drizzle-orm";
+import { clerkClient, getAuth } from "@clerk/express";
 
 declare global {
   namespace Express {
@@ -13,7 +13,8 @@ declare global {
 
 /**
  * Middleware to require an authenticated session and load the corresponding database user.
- * It enforces that the user must exist in the PostgreSQL database.
+ * If the user is authenticated via Clerk but does not exist in PostgreSQL, it performs
+ * safe Just-In-Time (JIT) provisioning with default role 'student'.
  */
 export const requireAuth: RequestHandler = async (req, res, next) => {
   const auth = getAuth(req);
@@ -23,21 +24,89 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
   }
 
   try {
-    const dbUser = await db.query.users.findFirst({
-      where: eq(users.clerkUserId, auth.userId),
+    let dbUser = await db.query.users.findFirst({
+      where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
     });
 
     if (!dbUser) {
-      req.log.warn({ clerkUserId: auth.userId }, "Authenticated Clerk user not found in database");
-      res.status(401).json({ error: "Unauthorized", message: "User profile incomplete or not synced" });
-      return;
+      req.log.info({ clerkUserId: auth.userId }, "Authenticated Clerk user not found in database, initiating JIT provisioning");
+
+      let clerkUser: any = null;
+      try {
+        clerkUser = await clerkClient.users.getUser(auth.userId);
+      } catch (clerkErr) {
+        req.log.warn({ clerkUserId: auth.userId, clerkErr }, "Could not fetch Clerk user info from Clerk API, using fallback defaults");
+      }
+
+      const primaryEmail =
+        clerkUser?.primaryEmailAddressId
+          ? clerkUser.emailAddresses?.find((e: any) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress
+          : clerkUser?.emailAddresses?.[0]?.emailAddress || `${auth.userId}@student.mkany.eg`;
+
+      const fullName =
+        [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
+        clerkUser?.username ||
+        primaryEmail.split("@")[0] ||
+        "مستخدم مكاني";
+
+      const avatarUrl = clerkUser?.imageUrl || null;
+
+      // Check if an existing user record matches this email (e.g. pre-seeded or existing account)
+      const existingByEmail = await db.query.users.findFirst({
+        where: eq(users.email, primaryEmail),
+      });
+
+      if (existingByEmail) {
+        // Safely link the Clerk User ID to existing account without overwriting existing role
+        const [updated] = await db
+          .update(users)
+          .set({
+            clerkUserId: auth.userId,
+            avatarUrl: avatarUrl || existingByEmail.avatarUrl,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, existingByEmail.id))
+          .returning();
+        dbUser = updated;
+      } else {
+        // Provision new user record with default 'student' role (never admin from client)
+        const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const [created] = await db
+          .insert(users)
+          .values({
+            id: newId,
+            clerkUserId: auth.userId,
+            fullName,
+            email: primaryEmail,
+            nationalId: "00000000000000",
+            phoneNumber: "01000000000",
+            university: "جامعة كفر الشيخ",
+            avatarUrl,
+            role: "student",
+            isVerified: false,
+          })
+          .returning();
+        dbUser = created;
+      }
+
+      if (!dbUser) {
+        // Fallback search in case of concurrent creation
+        dbUser = await db.query.users.findFirst({
+          where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
+        });
+      }
+
+      if (!dbUser) {
+        res.status(500).json({ error: "Internal Server Error", message: "Failed to provision user profile" });
+        return;
+      }
     }
 
-    // Attach the DB user to the request
+    // Attach the authoritative PostgreSQL DB user to the request
     req.dbUser = dbUser;
     next();
   } catch (error) {
-    req.log.error({ error, clerkUserId: auth.userId }, "Error fetching user from database");
+    req.log.error({ error, clerkUserId: auth.userId }, "Error resolving user from database");
     res.status(500).json({ error: "Internal Server Error" });
   }
 };

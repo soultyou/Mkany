@@ -27,13 +27,19 @@ profileRouter.patch("/", async (req, res) => {
     return;
   }
 
+  // Explicitly sanitize update payload to prevent any possibility of role/isVerified/id manipulation
+  const { fullName, nationalId, phoneNumber, university, avatarUrl } = result.data;
+  const updateData: Record<string, any> = { updatedAt: new Date() };
+  if (fullName !== undefined) updateData.fullName = fullName;
+  if (nationalId !== undefined) updateData.nationalId = nationalId;
+  if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+  if (university !== undefined) updateData.university = university;
+  if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
+
   try {
     const [updatedUser] = await db
       .update(users)
-      .set({
-        ...result.data,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(users.id, dbUser.id))
       .returning();
 

@@ -119,12 +119,16 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
   }
   
   try {
-    // Check ownership
+    // Check ownership or admin
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
+      where: eq(apartments.id, apartmentId)
     });
     
     if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
     
@@ -151,12 +155,16 @@ router.delete("/:id", requireAuth, requireOwner, async (req, res) => {
   }
   
   try {
-    // Check ownership
+    // Check ownership or admin
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
+      where: eq(apartments.id, apartmentId)
     });
     
     if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
     
@@ -183,10 +191,14 @@ router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
   
   try {
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
+      where: eq(apartments.id, apartmentId)
     });
     
     if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden" });
     }
     
@@ -214,10 +226,14 @@ router.delete("/:id/photos/:photoId", requireAuth, requireOwner, async (req, res
   
   try {
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
+      where: eq(apartments.id, apartmentId)
     });
     
     if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden" });
     }
     
