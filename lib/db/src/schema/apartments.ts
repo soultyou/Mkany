@@ -57,8 +57,21 @@ export const apartmentPhotos = pgTable("apartment_photos", {
 
 // Zod validation schemas
 export const insertApartmentSchema = createInsertSchema(apartments, {
-  title: (schema) => schema.min(5, "Title must be at least 5 characters"),
+  title: (schema) => schema.min(3, "Title must be at least 3 characters"),
   pricePerMonth: (schema) => schema.min(1, "Price must be greater than 0"),
+  description: (schema) => schema.optional(),
+  availableFrom: (schema) => schema.optional(),
+  currentRoommates: (schema) => schema.optional(),
+  images: (schema) => schema.optional(),
+  video360Url: (schema) => schema.optional(),
+  verified: (schema) => schema.optional(),
+  premium: (schema) => schema.optional(),
+  livabilityScore: (schema) => schema.optional(),
+  status: (schema) => schema.optional(),
+  lat: (schema) => schema.optional(),
+  lng: (schema) => schema.optional(),
+  nearbyAmenities: (schema) => schema.optional(),
+  inspectionId: (schema) => schema.optional(),
 }).omit({ ownerId: true, createdAt: true, updatedAt: true, id: true });
 
 export const selectApartmentSchema = createSelectSchema(apartments);

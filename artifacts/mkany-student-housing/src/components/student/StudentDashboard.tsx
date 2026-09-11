@@ -48,6 +48,15 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
   const [academicYear, setAcademicYear] = useState("الفرقة الثالثة");
   const [isSaved, setIsSaved] = useState(false);
 
+  React.useEffect(() => {
+    if (user) {
+      if (user.fullName) setFullName(user.fullName);
+      if (user.nationalId) setNationalId(user.nationalId);
+      if (user.phoneNumber) setPhoneNumber(user.phoneNumber);
+      if (user.university) setUniversity(user.university);
+    }
+  }, [user]);
+
   // 1. حماية البوابة: إذا كان المستخدم غير مسجل دخول
   if (!isSignedIn) {
     return (
@@ -99,30 +108,27 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
             حساب مالك عقار نشط 🏢
           </span>
 
-          <h2 className="text-2xl font-extrabold text-foreground">أنت مسجل حالياً كـ "مالك عقار" ({user.fullName})</h2>
+          <h2 className="text-2xl font-extrabold text-foreground">حساب مالك عقار ({user.fullName})</h2>
           <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
-            لوحة حجوزات الطلاب مخصصة للطلاب الجامعيين. حرصاً على عزل الحسابات والبيانات، يمكنك الانتقال إلى لوحة تحكم المالك أو التبديل إلى حساب طالب للبحث عن سكن وحجزه.
+            لوحة حجوزات الطلاب مخصصة للطلاب الجامعيين. حسابك مسجل كمالك عقار في قاعدة البيانات. يمكنك الانتقال إلى لوحة تحكم المالك لإدارة الوحدات والمعاينات.
           </p>
 
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            {onGoToOwnerDashboard && (
+            {onGoToOwnerDashboard ? (
               <button
                 onClick={onGoToOwnerDashboard}
                 className="rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
               >
                 الذهاب إلى لوحة تحكم المالك 🏢
               </button>
+            ) : (
+              <button
+                onClick={onExploreProperties}
+                className="rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
+              >
+                تصفح الوحدات العامة
+              </button>
             )}
-
-            <button
-              onClick={() => {
-                switchRole("student");
-                openToast(`تم التبديل بنجاح إلى حساب الطالب 🎓`);
-              }}
-              className="rounded-xl border border-primary/30 bg-primary/5 px-6 py-3.5 text-sm font-bold text-primary hover:bg-primary/10 transition-colors"
-            >
-              التبديل إلى حساب طالب 🎓 (Airbnb Mode)
-            </button>
           </div>
         </div>
       </div>

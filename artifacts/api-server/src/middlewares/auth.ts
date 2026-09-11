@@ -71,6 +71,20 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       } else {
         // Provision new user record with default 'student' role (never admin from client)
         const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const rawNationalId =
+          (clerkUser?.unsafeMetadata?.nationalId as string) ||
+          (clerkUser?.publicMetadata?.nationalId as string) ||
+          "00000000000000";
+        const rawPhone =
+          (clerkUser?.unsafeMetadata?.phoneNumber as string) ||
+          (clerkUser?.publicMetadata?.phoneNumber as string) ||
+          clerkUser?.phoneNumbers?.[0]?.phoneNumber ||
+          "01000000000";
+        const rawUniversity =
+          (clerkUser?.unsafeMetadata?.university as string) ||
+          (clerkUser?.publicMetadata?.university as string) ||
+          "جامعة كفر الشيخ";
+
         const [created] = await db
           .insert(users)
           .values({
@@ -78,9 +92,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
             clerkUserId: auth.userId,
             fullName,
             email: primaryEmail,
-            nationalId: "00000000000000",
-            phoneNumber: "01000000000",
-            university: "جامعة كفر الشيخ",
+            nationalId: rawNationalId,
+            phoneNumber: rawPhone,
+            university: rawUniversity,
             avatarUrl,
             role: "student",
             isVerified: false,

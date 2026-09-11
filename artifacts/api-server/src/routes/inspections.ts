@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, inspections, apartments, apartmentPhotos } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { getAuth } from "@clerk/express";
-import { requireAuth, requireAdmin } from "../middlewares/auth";
+import { requireAuth, requireAdmin, requireOwner } from "../middlewares/auth";
 
 const router = Router();
 
@@ -88,8 +88,8 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/inspections - Create inspection request with verified identity (Requires Auth)
-router.post("/", requireAuth, async (req, res) => {
+// POST /api/inspections - Create inspection request with verified identity (Requires Owner/Admin Auth)
+router.post("/", requireAuth, requireOwner, async (req, res) => {
   try {
     const dbUser = req.dbUser!;
     const auth = getAuth(req);

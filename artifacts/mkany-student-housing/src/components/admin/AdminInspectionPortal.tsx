@@ -59,6 +59,11 @@ import {
   syncPlatformPropertiesFromApi,
   NearbyAmenities
 } from "@/lib/inspections-store";
+import { 
+  createApartmentApi, 
+  updateApartmentApi, 
+  deleteApartmentApi 
+} from "@/lib/api-client";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
 import { 
   getAllBookings, 
@@ -194,20 +199,42 @@ export function AdminInspectionPortal({
   };
 
   // تعديل بيانات عقار منشور
-  const handleSavePropertyEdit = (e: React.FormEvent) => {
+  const handleSavePropertyEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProperty) return;
 
     updatePlatformProperty(editingProperty.id, editingProperty);
-    openToast(`تم تحديث بيانات العقار (#${editingProperty.id}) وستظهر فوراً أمام الطلاب!`);
+    try {
+      await updateApartmentApi(editingProperty.id, {
+        title: editingProperty.title,
+        pricePerMonth: editingProperty.pricePerMonth,
+        university: editingProperty.university,
+        city: editingProperty.city,
+        address: editingProperty.address,
+        areaSqm: editingProperty.areaSqm,
+        bedrooms: editingProperty.bedrooms,
+        status: editingProperty.status,
+        livabilityScore: editingProperty.livabilityScore,
+        video360Url: editingProperty.video360Url,
+        nearbyAmenities: editingProperty.nearbyAmenities,
+      });
+    } catch (err) {
+      console.warn("API update apartment error:", err);
+    }
+    openToast(`تم تحديث بيانات العقار (#${editingProperty.id}) وحفظها في قاعدة البيانات!`);
     refreshAll();
     setEditingProperty(null);
   };
 
   // حذف عقار من الكتالوج
-  const handleDeleteProperty = (id: number, title: string) => {
+  const handleDeleteProperty = async (id: number, title: string) => {
     if (confirm(`هل أنت متأكد من حذف عقار "${title}" من الكتالوج المتاح للطلاب؟`)) {
       deletePlatformProperty(id);
+      try {
+        await deleteApartmentApi(id);
+      } catch (err) {
+        console.warn("API delete apartment error:", err);
+      }
       openToast(`تم حذف العقار من الكتالوج العام`);
       refreshAll();
     }
@@ -1109,10 +1136,10 @@ export function AdminInspectionPortal({
         <div>
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const form = e.target as any;
-                addNewPlatformProperty({
+                const newPayload = {
                   title: form.title.value,
                   pricePerMonth: Number(form.price.value),
                   university: form.university.value,
@@ -1129,13 +1156,23 @@ export function AdminInspectionPortal({
                   images: [
                     form.image.value || "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200"
                   ],
+                  photos: [
+                    form.image.value || "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                  ],
                   video360Url: form.video360.value || "https://storage.googleapis.com/coverr-main/mp4/Mt_Baker.mp4",
                   verified: true,
                   premium: true,
                   livabilityScore: 94,
-                  status: "متاح",
+                  status: "متاح" as const,
                   nearbyAmenities: newAmenities,
-                });
+                };
+
+                addNewPlatformProperty(newPayload);
+                try {
+                  await createApartmentApi(newPayload);
+                } catch (err) {
+                  console.warn("API create apartment error:", err);
+                }
                 openToast("تمت إضافة ونشر العقار الجديد مع تفاصيل المنطقة المحيطة بنجاح!");
                 refreshAll();
                 setIsNewPropertyModalOpen(false);

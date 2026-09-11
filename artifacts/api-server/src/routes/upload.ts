@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { uploadImageToSupabase, isSupabaseStorageConfigured, STORAGE_BUCKET_NAME } from "../lib/supabase-storage";
+import { requireAuth } from "../middlewares/auth";
 
 const router = Router();
 
@@ -20,7 +21,7 @@ const upload = multer({
 });
 
 // POST /api/upload/single - Upload single image to Supabase Storage
-router.post("/single", upload.single("image"), async (req, res) => {
+router.post("/single", requireAuth, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Bad Request", message: "No image file provided" });
@@ -59,7 +60,7 @@ router.post("/single", upload.single("image"), async (req, res) => {
 });
 
 // POST /api/upload/multiple - Upload multiple images to Supabase Storage
-router.post("/multiple", upload.array("images", 10), async (req, res) => {
+router.post("/multiple", requireAuth, upload.array("images", 10), async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) {

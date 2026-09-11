@@ -133,8 +133,25 @@ export async function publishInspectionApi(id: string, data: any) {
 // Apartments API
 // ==========================================
 
-export async function getApartmentsApi() {
-  return apiFetch("/api/apartments", { method: "GET" });
+export async function getApartmentsApi(params?: Record<string, any>) {
+  let url = "/api/apartments";
+  if (params) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== "") {
+        searchParams.append(key, String(val));
+      }
+    });
+    const queryString = searchParams.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
+  }
+  return apiFetch(url, { method: "GET" });
+}
+
+export async function getMyApartmentsApi() {
+  return apiFetch("/api/apartments/mine", { method: "GET" });
 }
 
 export async function getApartmentByIdApi(id: number) {
@@ -159,6 +176,20 @@ export async function updateApartmentApi(id: number, data: any) {
 
 export async function deleteApartmentApi(id: number) {
   return apiFetch(`/api/apartments/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function addApartmentPhotoApi(apartmentId: number, data: { url: string; isCover?: boolean; displayOrder?: number }) {
+  return apiFetch(`/api/apartments/${apartmentId}/photos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteApartmentPhotoApi(apartmentId: number, photoId: string) {
+  return apiFetch(`/api/apartments/${apartmentId}/photos/${photoId}`, {
     method: "DELETE",
   });
 }

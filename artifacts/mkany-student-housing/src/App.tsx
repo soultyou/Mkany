@@ -12,8 +12,10 @@ import {
   UserButton, 
   SignedIn, 
   SignedOut, 
-  useUser 
+  useUser,
+  isOnboardingRequired
 } from "@/components/auth/clerk-auth";
+import { OnboardingModal } from "@/components/auth/OnboardingModal";
 import { OwnerPublicView } from "@/components/owner/OwnerPublicView";
 import { OwnerDashboard } from "@/components/owner/OwnerDashboard";
 import { AdminSecurePortalPage } from "@/components/admin/AdminSecurePortalPage";
@@ -509,6 +511,8 @@ function Footer({
 }
 
 function AppContent() {
+  const { user, isSignedIn } = useUser();
+  const showOnboarding = Boolean(isSignedIn && user && isOnboardingRequired(user));
   const [light, setLight] = useState(false); 
   const [activeView, setActiveView] = useState<ActiveViewType>("listings"); 
   const [, setLocation] = useLocation();
@@ -716,6 +720,8 @@ function AppContent() {
           }}
         />
       )}
+
+      <OnboardingModal isOpen={showOnboarding} onToast={setToast} />
 
 
 
