@@ -19,3 +19,4 @@
 
 export * from "./users";
 export * from "./apartments";
+export * from "./inspections";

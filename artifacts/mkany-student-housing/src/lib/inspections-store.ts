@@ -513,6 +513,71 @@ const BASE_PROPERTIES: PlatformProperty[] = [
   },
 ];
 
+export const INSPECTIONS_CHANGE_EVENT = "mkany_inspections_updated";
+export const PROPERTIES_CHANGE_EVENT = "mkany_properties_updated";
+
+/**
+ * Upload single image file to server storage
+ */
+export async function uploadImageFile(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch("/api/upload/single", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to upload image");
+  }
+
+  const data = await res.json();
+  return data.url;
+}
+
+/**
+ * Upload multiple image files to server storage
+ */
+export async function uploadImageFiles(files: File[]): Promise<string[]> {
+  if (files.length === 0) return [];
+  const formData = new FormData();
+  for (const f of files) {
+    formData.append("images", f);
+  }
+
+  const res = await fetch("/api/upload/multiple", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to upload images");
+  }
+
+  const data = await res.json();
+  return data.urls;
+}
+
+/**
+ * Synchronize inspections from PostgreSQL database via API
+ */
+export async function syncInspectionsFromApi(): Promise<PropertyInspection[]> {
+  try {
+    const res = await fetch("/api/inspections");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        saveInspections(data);
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync inspections from DB API:", err);
+  }
+  return getAllInspections();
+}
+
 /**
  * استرجاع كافة طلبات المعاينة
  */
@@ -531,11 +596,8 @@ export function getAllInspections(): PropertyInspection[] {
   }
 }
 
-export const INSPECTIONS_CHANGE_EVENT = "mkany_inspections_updated";
-export const PROPERTIES_CHANGE_EVENT = "mkany_properties_updated";
-
 /**
- * حفظ طلبات المعاينة
+ * حفظ طلبات المعاينة محلياً وإطلاق الحدث
  */
 function saveInspections(list: PropertyInspection[]): void {
   if (typeof window === "undefined") return;
@@ -548,16 +610,18 @@ function saveInspections(list: PropertyInspection[]): void {
 }
 
 /**
- * إنشاء طلب معاينة جديد من قِبل المالك
+ * إنشاء طلب معاينة جديد من قِبل المالك وحفظه في PostgreSQL عبر الـ API
  */
 export function createInspectionRequest(
   data: Omit<PropertyInspection, "id" | "status" | "createdAt" | "updatedAt">
 ): PropertyInspection {
   const current = getAllInspections();
   const now = new Date().toISOString();
+  const id = `insp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  
   const newInspection: PropertyInspection = {
     ...data,
-    id: `insp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    id,
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -565,11 +629,70 @@ export function createInspectionRequest(
 
   const updated = [newInspection, ...current];
   saveInspections(updated);
+
+  // Send to backend PostgreSQL API
+  fetch("/api/inspections", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(newInspection),
+  }).then(async (res) => {
+    if (res.ok) {
+      const saved = await res.json();
+      console.log("Inspection successfully saved to Supabase PostgreSQL:", saved.id);
+    }
+  }).catch((err) => {
+    console.error("Error persisting inspection to API:", err);
+  });
+
   return newInspection;
 }
 
 /**
- * جدولة موعد المعاينة الميدانية بواسطة الآدمن
+ * النسخة غير المتزامنة لإنشاء طلب المعاينة
+ */
+export async function createInspectionRequestAsync(
+  data: Omit<PropertyInspection, "id" | "status" | "createdAt" | "updatedAt">
+): Promise<PropertyInspection> {
+  const current = getAllInspections();
+  const now = new Date().toISOString();
+  const id = `insp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+  const newInspection: PropertyInspection = {
+    ...data,
+    id,
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    const res = await fetch("/api/inspections", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newInspection),
+    });
+
+    if (res.ok) {
+      const saved = await res.json();
+      const updated = [saved, ...current.filter((x) => x.id !== saved.id)];
+      saveInspections(updated);
+      return saved;
+    }
+  } catch (e) {
+    console.error("Error creating inspection via API:", e);
+  }
+
+  const updated = [newInspection, ...current];
+  saveInspections(updated);
+  return newInspection;
+}
+
+/**
+ * جدولة موعد المعاينة الميدانية بواسطة الآدمن وحفظ التعديل في PostgreSQL
  */
 export function scheduleInspectionVisit(
   id: string,
@@ -592,11 +715,24 @@ export function scheduleInspectionVisit(
 
   list[index] = updated;
   saveInspections(list);
+
+  // Sync to PostgreSQL backend
+  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "scheduled",
+      scheduledDate,
+      inspectorName,
+      inspectorReport: inspectorNotes || list[index].inspectorReport,
+    }),
+  }).catch((e) => console.error("Failed to patch inspection schedule in DB:", e));
+
   return updated;
 }
 
 /**
- * تسجيل نزول المعاينة الفعلية بواسطة الآدمن
+ * تسجيل نزول المعاينة الفعلية بواسطة الآدمن وحفظ النتيجة في PostgreSQL
  */
 export function markInspectionCompleted(
   id: string,
@@ -617,11 +753,23 @@ export function markInspectionCompleted(
 
   list[index] = updated;
   saveInspections(list);
+
+  // Sync to PostgreSQL backend
+  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "inspected",
+      inspectorReport,
+      livabilityScore,
+    }),
+  }).catch((e) => console.error("Failed to patch inspection completion in DB:", e));
+
   return updated;
 }
 
 /**
- * رفض طلب المعاينة مع توضيح السبب
+ * رفض طلب المعاينة مع توضيح السبب وحفظ الرفض في PostgreSQL
  */
 export function rejectInspectionRequest(
   id: string,
@@ -640,7 +788,66 @@ export function rejectInspectionRequest(
 
   list[index] = updated;
   saveInspections(list);
+
+  // Sync to PostgreSQL backend
+  fetch(`/api/inspections/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "rejected",
+      rejectionReason,
+    }),
+  }).catch((e) => console.error("Failed to patch inspection rejection in DB:", e));
+
   return updated;
+}
+
+/**
+ * استرجاع العقارات المنشورة ومزامنتها مع PostgreSQL
+ */
+export async function syncPlatformPropertiesFromApi(): Promise<PlatformProperty[]> {
+  try {
+    const res = await fetch("/api/apartments");
+    if (res.ok) {
+      const dbApartments = await res.json();
+      if (Array.isArray(dbApartments) && dbApartments.length > 0) {
+        const mapped: PlatformProperty[] = dbApartments.map((a: any) => ({
+          id: a.id,
+          title: a.title,
+          address: a.address,
+          city: a.city,
+          university: a.university,
+          pricePerMonth: a.pricePerMonth || a.price,
+          roomType: a.roomType || "شقة مشتركة",
+          areaSqm: a.areaSqm,
+          bedrooms: a.bedrooms,
+          bathrooms: a.bathrooms,
+          floor: a.floor,
+          furnishing: a.furnishing,
+          availableFrom: a.availableFrom || "متاح الآن فوراً",
+          currentRoommates: a.currentRoommates || 0,
+          images: Array.isArray(a.images) && a.images.length > 0
+            ? a.images
+            : (a.photos && a.photos.length > 0 ? a.photos.map((p: any) => p.url) : []),
+          video360Url: a.video360Url || null,
+          verified: a.verified ?? true,
+          premium: a.premium ?? true,
+          livabilityScore: a.livabilityScore || 90,
+          status: a.status || "متاح",
+          ownerId: a.ownerId,
+          inspectionId: a.inspectionId,
+          lat: a.lat,
+          lng: a.lng,
+          nearbyAmenities: a.nearbyAmenities || getEffectiveAmenities(a),
+        }));
+        savePlatformProperties(mapped);
+        return mapped;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to sync apartments from DB API:", err);
+  }
+  return getAllPlatformProperties();
 }
 
 /**
@@ -682,7 +889,7 @@ function savePlatformProperties(props: PlatformProperty[]): void {
 }
 
 /**
- * تفعيل العقار رسمياً بعد المعاينة الميدانية ونشره للطلاب مع صور 360° وتفاصيل المنطقة المحيطة
+ * تفعيل العقار رسمياً بعد المعاينة الميدانية ونشره للطلاب مع صور 360° وتفاصيل المنطقة المحيطة وحفظه في PostgreSQL
  */
 export function activateAndPublishProperty(
   inspectionId: string,
@@ -760,7 +967,35 @@ export function activateAndPublishProperty(
   inspections[index] = updatedInspection;
   saveInspections(inspections);
 
+  // Sync publish operation to backend PostgreSQL
+  fetch(`/api/inspections/${encodeURIComponent(inspectionId)}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      video360Url: video360,
+      finalImages: images,
+      livabilityScore: score,
+      inspectorReport: details.inspectorReport || insp.inspectorReport,
+      nearbyAmenities: amenities,
+    }),
+  }).then(async (res) => {
+    if (res.ok) {
+      const data = await res.json();
+      console.log("Property successfully published to PostgreSQL database:", data);
+    }
+  }).catch((err) => {
+    console.error("Error publishing to database:", err);
+  });
+
   return { inspection: updatedInspection, property: newProperty };
+}
+
+// Auto-sync initial data on browser startup
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    syncInspectionsFromApi();
+    syncPlatformPropertiesFromApi();
+  }, 100);
 }
 
 /**

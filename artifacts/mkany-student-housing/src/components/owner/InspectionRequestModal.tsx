@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   FileText
 } from "lucide-react";
-import { createInspectionRequest } from "@/lib/inspections-store";
+import { createInspectionRequest, createInspectionRequestAsync, uploadImageFiles } from "@/lib/inspections-store";
 import { useAuth } from "@/components/auth/clerk-auth";
 import { PropertyLocationPicker } from "@/components/map/PropertyLocationPicker";
 import { LatLngCoord } from "@/lib/geo-utils";
@@ -79,6 +79,8 @@ export function InspectionRequestModal({
     PRESET_SAMPLE_PHOTOS[1],
   ]);
   const [customPhotoUrl, setCustomPhotoUrl] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
 
@@ -107,25 +109,37 @@ export function InspectionRequestModal({
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // تحويل الصور المرفوعة إلى Data URL
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setPhotos((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    openToast(`تم إرفاق ${files.length} صور من جهازك`);
+    try {
+      setIsUploading(true);
+      const fileArray = Array.from(files);
+      const uploadedUrls = await uploadImageFiles(fileArray);
+      if (uploadedUrls && uploadedUrls.length > 0) {
+        setPhotos((prev) => [...prev, ...uploadedUrls]);
+        openToast(`تم رفع وتخزين ${uploadedUrls.length} صور في خادم التخزين بنجاح`);
+      }
+    } catch (err) {
+      console.warn("Server upload failed, falling back to local data URLs:", err);
+      // Fallback to data URL if network issue
+      Array.from(files).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            setPhotos((prev) => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      openToast(`تم إرفاق ${files.length} صور`);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -149,32 +163,39 @@ export function InspectionRequestModal({
       return;
     }
 
-    const newInspection = createInspectionRequest({
-      ownerId: user?.id || "usr_owner_01",
-      ownerName: user?.fullName || "المهندس محمود عبد العزيز",
-      ownerPhone: ownerPhone.trim(),
-      ownerEmail: user?.email || "owner.mahmoud@mkany.eg",
-      title: title.trim(),
-      address: address.trim(),
-      city: city.trim() || "كفر الشيخ",
-      university: university.trim() || "جامعة كفر الشيخ",
-      roomType,
-      pricePerMonth: Number(pricePerMonth) || 800,
-      areaSqm: Number(areaSqm) || 100,
-      bedrooms: Number(bedrooms) || 2,
-      bathrooms: Number(bathrooms) || 1,
-      floor,
-      furnishing,
-      initialPhotos: photos,
-      notes: notes.trim(),
-      preferredInspectionDate: preferredDate.trim(),
-      lat: coords?.lat,
-      lng: coords?.lng,
-    });
+    try {
+      setIsSubmitting(true);
+      const newInspection = await createInspectionRequestAsync({
+        ownerId: user?.id || "usr_owner_01",
+        ownerName: user?.fullName || "المهندس محمود عبد العزيز",
+        ownerPhone: ownerPhone.trim(),
+        ownerEmail: user?.email || "owner.mahmoud@mkany.eg",
+        title: title.trim(),
+        address: address.trim(),
+        city: city.trim() || "كفر الشيخ",
+        university: university.trim() || "جامعة كفر الشيخ",
+        roomType,
+        pricePerMonth: Number(pricePerMonth) || 800,
+        areaSqm: Number(areaSqm) || 100,
+        bedrooms: Number(bedrooms) || 2,
+        bathrooms: Number(bathrooms) || 1,
+        floor,
+        furnishing,
+        initialPhotos: photos,
+        notes: notes.trim(),
+        preferredInspectionDate: preferredDate.trim(),
+        lat: coords?.lat,
+        lng: coords?.lng,
+      });
 
-    setSubmitted(true);
-    openToast("تم تسجيل طلب المعاينة وحفظه في قاعدة البيانات بنجاح!");
-    onSuccess(newInspection.id);
+      setSubmitted(true);
+      openToast("تم تسجيل طلب المعاينة وحفظه في قاعدة البيانات بنجاح!");
+      onSuccess(newInspection.id);
+    } catch (err: any) {
+      setError(err?.message || "حدث خطأ أثناء حفظ طلب المعاينة.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -524,11 +545,18 @@ export function InspectionRequestModal({
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-2 rounded-xl bg-primary px-7 py-3 text-sm font-bold text-primary-foreground shadow-lg transition-transform hover:-translate-y-0.5"
+                  disabled={isSubmitting || isUploading}
+                  className="flex items-center gap-2 rounded-xl bg-primary px-7 py-3 text-sm font-bold text-primary-foreground shadow-lg transition-transform hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed"
                   data-testid="button-submit-inspection"
                 >
-                  <Plus size={18} />
-                  إرسال طلب المعاينة الآن
+                  {isSubmitting ? (
+                    <span>جاري الحفظ في قاعدة البيانات...</span>
+                  ) : (
+                    <>
+                      <Plus size={18} />
+                      إرسال طلب المعاينة الآن
+                    </>
+                  )}
                 </button>
               </div>
             </form>

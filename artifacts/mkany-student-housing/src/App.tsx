@@ -604,7 +604,7 @@ function AppContent() {
 
   const toggleSave = (id: number) => setSaved((x) => x.includes(id) ? x.filter((i) => i !== id) : [...x, id]);
 
-  return <ClerkAuthProvider onToast={setToast}>
+  return (
     <div className="min-h-[100dvh] bg-background text-foreground">
       <Header 
         light={light} 
@@ -721,7 +721,7 @@ function AppContent() {
 
       {toast && <div className="toast-in fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-primary/30 bg-card px-4 py-3 text-xs font-bold shadow-xl" role="status" data-testid="toast-message"><Check size={16} className="text-primary" />{toast}</div>}
     </div>
-  </ClerkAuthProvider>;
+  );
 }
 
 function RootRouter() {
@@ -748,14 +748,16 @@ function App() {
   const queryClient = new QueryClient();
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <ErrorBoundary resetKey="/">
-            <RootRouter />
-          </ErrorBoundary>
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
+      <ClerkAuthProvider>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <ErrorBoundary resetKey="/">
+              <RootRouter />
+            </ErrorBoundary>
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </ClerkAuthProvider>
     </QueryClientProvider>
   );
 }

@@ -29,6 +29,8 @@ import { useAuth, SignInButton, SignUpButton } from "@/components/auth/clerk-aut
 import { 
   getAllInspections, 
   getAllPlatformProperties, 
+  syncInspectionsFromApi,
+  syncPlatformPropertiesFromApi,
   PropertyInspection, 
   PlatformProperty,
   INSPECTIONS_CHANGE_EVENT,
@@ -58,6 +60,9 @@ export function OwnerDashboard({
 
   // الاستماع الفوري لأحداث التحديث في المخزن
   React.useEffect(() => {
+    syncInspectionsFromApi();
+    syncPlatformPropertiesFromApi();
+
     const handleSync = () => {
       setAllInspections(getAllInspections());
       setAllProperties(getAllPlatformProperties());

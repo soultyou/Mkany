@@ -46,7 +46,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const publishableKey =
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+  (typeof window !== "undefined" ? (window as any).__CLERK_PUBLISHABLE_KEY__ : "");
 
 let clerkInstance: Clerk | null = null;
 
@@ -57,16 +60,64 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
   const [sessionUser, setSessionUser] = useState<StudentUser | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
 
+  const handleAuthUpdate = async (clerk: Clerk) => {
+    const session = clerk.session;
+    const user = clerk.user;
+    const signedIn = Boolean(session);
+
+    setIsSignedIn(signedIn);
+
+    if (session) {
+      setAuthTokenGetter(async () => await session.getToken());
+    } else {
+      setAuthTokenGetter(null);
+    }
+
+    if (user) {
+      setSessionUser(prevSessionUser => {
+        const currentRole = prevSessionUser?.role || (user.publicMetadata?.role as "student" | "owner" | "admin") || "student";
+        return {
+          id: user.id,
+          fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
+          email: user.primaryEmailAddress?.emailAddress || "",
+          avatarUrl: user.imageUrl,
+          role: currentRole,
+          university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
+          city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
+          nationalId: (user.unsafeMetadata?.nationalId as string) || "",
+          phoneNumber: (user.unsafeMetadata?.phoneNumber as string) || "",
+          unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
+          propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
+          isVerified: (user.publicMetadata?.isVerified as boolean) || false,
+        };
+      });
+
+      if (session) {
+        try {
+          const profile = await getProfile();
+          setSessionUser(prev => prev ? {
+            ...prev,
+            fullName: profile.fullName || prev.fullName,
+            university: profile.university || prev.university,
+            nationalId: profile.nationalId || prev.nationalId,
+            phoneNumber: profile.phoneNumber || prev.phoneNumber,
+            role: (profile.role as "student" | "owner" | "admin") || prev.role,
+            isVerified: profile.isVerified || prev.isVerified,
+          } : null);
+        } catch (e) {
+          console.error("Failed to fetch profile from DB", e);
+        }
+      }
+    } else {
+      setSessionUser(null);
+    }
+  };
+
   useEffect(() => {
     if (!publishableKey || !publishableKey.startsWith("pk_")) {
       console.warn("VITE_CLERK_PUBLISHABLE_KEY is not set or invalid. Running in guest mode.");
       setClerkLoaded(true);
       return;
-    }
-
-    if (import.meta.env.DEV) {
-      console.log("Clerk origin:", window.location.origin);
-      console.log("Clerk key prefix:", publishableKey.slice(0, 12));
     }
 
     let unsubscribe: (() => void) | undefined;
@@ -78,60 +129,13 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       try {
         if (!clerkLoaded) {
           await clerkInstance.load({});
-          console.log({ clerkLoaded: true, origin: window.location.origin });
         }
-        
-        unsubscribe = clerkInstance.addListener(async ({ user, session }) => {
-          setIsSignedIn(!!session);
-          
-          if (session && window.name === 'clerk-auth-popup') {
-            window.close();
-            return;
-          }
-          
-          if (session) {
-            setAuthTokenGetter(async () => await session.getToken());
-          } else {
-            setAuthTokenGetter(null);
-          }
 
-          if (user) {
-            setSessionUser(prevSessionUser => {
-              const currentRole = prevSessionUser?.role || (user.publicMetadata?.role as "student" | "owner" | "admin") || "student";
-              return {
-                id: user.id,
-                fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
-                email: user.primaryEmailAddress?.emailAddress || "",
-                avatarUrl: user.imageUrl,
-                role: currentRole,
-                university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
-                city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
-                nationalId: (user.unsafeMetadata?.nationalId as string) || "",
-                phoneNumber: (user.unsafeMetadata?.phoneNumber as string) || "",
-                unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
-                propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
-                isVerified: (user.publicMetadata?.isVerified as boolean) || false,
-              };
-            });
-            
-            if (session) {
-              try {
-                const profile = await getProfile();
-                setSessionUser(prev => prev ? {
-                  ...prev,
-                  fullName: profile.fullName || prev.fullName,
-                  university: profile.university || prev.university,
-                  nationalId: profile.nationalId || prev.nationalId,
-                  phoneNumber: profile.phoneNumber || prev.phoneNumber,
-                  role: (profile.role as "student" | "owner" | "admin") || prev.role,
-                  isVerified: profile.isVerified || prev.isVerified,
-                } : null);
-              } catch (e) {
-                console.error("Failed to fetch profile from DB", e);
-              }
-            }
-          } else {
-            setSessionUser(null);
+        await handleAuthUpdate(clerkInstance);
+
+        unsubscribe = clerkInstance.addListener(async () => {
+          if (clerkInstance) {
+            await handleAuthUpdate(clerkInstance);
           }
         });
 
@@ -219,22 +223,35 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       updateUserProfile,
       switchRole,
       openSignIn: (props?: any) => {
-        if (clerkInstance) {
-          const signInUrl = clerkInstance.buildSignInUrl({ redirectUrl: window.location.href });
-          window.open(signInUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
-        } else {
+        if (!clerkInstance) {
           onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لتسجيل الدخول الفعلي");
+          return;
+        }
+        try {
+          clerkInstance.openSignIn(props);
+        } catch (err) {
+          console.error("Failed to open Clerk sign-in modal:", err);
+          onToast?.("حدث خطأ أثناء فتح نافذة تسجيل الدخول");
         }
       },
       openSignUp: (props?: any) => {
-        if (clerkInstance) {
-          const signUpUrl = clerkInstance.buildSignUpUrl({ redirectUrl: window.location.href });
-          window.open(signUpUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
-        } else {
+        if (!clerkInstance) {
           onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لإنشاء حساب فعلي");
+          return;
+        }
+        try {
+          clerkInstance.openSignUp(props);
+        } catch (err) {
+          console.error("Failed to open Clerk sign-up modal:", err);
+          onToast?.("حدث خطأ أثناء فتح نافذة إنشاء الحساب");
         }
       },
-      signOut: async () => { await clerkInstance?.signOut(); },
+      signOut: async () => {
+        if (clerkInstance) {
+          await clerkInstance.signOut();
+          await handleAuthUpdate(clerkInstance);
+        }
+      },
       localRoleOverride: localRole
     }}>
       {children}

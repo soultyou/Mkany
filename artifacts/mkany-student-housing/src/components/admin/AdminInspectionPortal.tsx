@@ -55,6 +55,8 @@ import {
   addNewPlatformProperty,
   getDefaultAmenities,
   getEffectiveAmenities,
+  syncInspectionsFromApi,
+  syncPlatformPropertiesFromApi,
   NearbyAmenities
 } from "@/lib/inspections-store";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
@@ -130,10 +132,17 @@ export function AdminInspectionPortal({
 
   // تحديث القوائم
   const refreshAll = () => {
+    syncInspectionsFromApi();
+    syncPlatformPropertiesFromApi();
     setInspections(getAllInspections());
     setProperties(getAllPlatformProperties());
     setBookings(getAllBookings());
   };
+
+  React.useEffect(() => {
+    syncInspectionsFromApi();
+    syncPlatformPropertiesFromApi();
+  }, []);
 
   const filteredInspections = inspections.filter((i) => {
     if (filter === "all") return true;
