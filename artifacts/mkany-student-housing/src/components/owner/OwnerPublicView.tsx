@@ -122,22 +122,18 @@ export function OwnerPublicView({
                     </span>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <button 
-                      onClick={() => {
-                        updateUserProfile({ role: "owner" });
-                        onOpenToast("تم تفعيل وتصنيف حسابك كمالك عقار بنجاح!");
-                        onGoToDashboard();
-                      }}
-                      className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-transform hover:-translate-y-0.5"
-                      data-testid="button-switch-to-owner"
-                    >
-                      <UserCheck size={18} />
-                      تفعيل دور المالك لحسابك الحالي والدخول للوحة التحكم
-                    </button>
-                    <span className="text-xs text-muted-foreground">
-                      (أنت مسجل حالياً كطالب: {user?.fullName})
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center rounded-2xl border border-border bg-card/80 p-4">
+                    <span className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
+                      <UserCheck size={18} className="text-primary shrink-0" />
+                      أنت مسجل حالياً بحساب طالب: <strong className="text-foreground">{user?.fullName}</strong>. هذه الصفحة تعرض معلومات الشراكة العقارية لأصحاب العقارات.
                     </span>
+                    <button 
+                      onClick={onGoToStudentListings}
+                      className="rounded-xl bg-primary/10 border border-primary/20 px-4 py-2 text-xs font-bold text-primary hover:bg-primary/20 transition-colors shrink-0"
+                      data-testid="button-browse-student-housing"
+                    >
+                      تصفح سكن الطلاب 👈
+                    </button>
                   </div>
                 )}
               </div>

@@ -63,7 +63,7 @@ export function OwnerDashboard({
   onViewPublicServices,
   onViewPropertyModal,
 }: OwnerDashboardProps) {
-  const { isSignedIn, user, updateUserProfile, openSignIn, switchRole } = useAuth();
+  const { isSignedIn, user, openSignIn } = useAuth();
   
   const [activeTab, setActiveTab] = useState<"units" | "inspections">("units");
   const [isAddApartmentModalOpen, setIsAddApartmentModalOpen] = useState(false);
@@ -207,12 +207,6 @@ export function OwnerDashboard({
     } finally {
       setTogglingId(null);
     }
-  };
-
-  // الدخول السريع بحساب مالك جاهز للتجربة
-  const handleQuickDemoOwner = () => {
-    switchRole("owner");
-    openToast(`تم تفعيل جلسة المالك 🏢`);
   };
 
   // 1. حماية لوحة التحكم: التحقق من تسجيل الدخول

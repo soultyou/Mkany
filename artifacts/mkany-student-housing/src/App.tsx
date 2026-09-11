@@ -131,7 +131,9 @@ function Header({
         <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground md:flex">
           <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
           <button onClick={() => { setView("listings"); go("discover"); }} className="hover:text-primary transition-colors" data-testid="link-discover">اكتشف السكن</button>
-          <button onClick={() => setView("ownerPublic")} className={`hover:text-primary transition-colors ${activeView === "ownerPublic" ? "text-primary font-bold" : ""}`} data-testid="link-owners">للملاك</button>
+          {user?.role !== "student" && (
+            <button onClick={() => setView("ownerPublic")} className={`hover:text-primary transition-colors ${activeView === "ownerPublic" ? "text-primary font-bold" : ""}`} data-testid="link-owners">للملاك</button>
+          )}
           <button onClick={() => { setView("listings"); go("how"); }} className="hover:text-primary transition-colors" data-testid="link-about">كيف تعمل مكاني؟</button>
         </nav>
         <div className="flex items-center gap-2.5">
@@ -139,22 +141,24 @@ function Header({
 
           {/* أزرار مخصصة حسب دور المستخدم المسجل */}
           <SignedIn>
-            {/* زر لوحة الطالب وحجوزاته */}
-            <button
-              onClick={() => setView("studentDashboard")}
-              className={`hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                activeView === "studentDashboard"
-                  ? "bg-primary text-primary-foreground shadow"
-                  : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-              }`}
-              data-testid="header-button-student-dashboard"
-            >
-              <FileText size={15} />
-              حجوزاتي وبياناتي
-            </button>
+            {/* زر لوحة الطالب وحجوزاته - يظهر فقط للطلاب والمستخدمين العاديين */}
+            {user?.role !== "owner" && (
+              <button
+                onClick={() => setView("studentDashboard")}
+                className={`hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                  activeView === "studentDashboard"
+                    ? "bg-primary text-primary-foreground shadow"
+                    : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                }`}
+                data-testid="header-button-student-dashboard"
+              >
+                <FileText size={15} />
+                حجوزاتي وبياناتي
+              </button>
+            )}
 
-            {/* زر لوحة المالك فقط إذا كان مسجلاً كمالك */}
-            {user?.role === "owner" && (
+            {/* زر لوحة المالك - يظهر فقط للملاك والآدمن */}
+            {(user?.role === "owner" || user?.role === "admin") && (
               <button
                 onClick={() => setView("ownerDashboard")}
                 className={`hidden lg:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
@@ -229,16 +233,18 @@ function Header({
             <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary" data-testid="mobile-link-discover">اكتشف السكن</button>
             
             <SignedIn>
-              <button 
-                onClick={() => { setView("studentDashboard"); setMenuOpen(false); }} 
-                className="text-right text-primary flex items-center gap-2" 
-                data-testid="mobile-link-student-dashboard"
-              >
-                <FileText size={16} />
-                حجوزاتي وبياناتي (لوحة الطالب)
-              </button>
+              {user?.role !== "owner" && (
+                <button 
+                  onClick={() => { setView("studentDashboard"); setMenuOpen(false); }} 
+                  className="text-right text-primary flex items-center gap-2" 
+                  data-testid="mobile-link-student-dashboard"
+                >
+                  <FileText size={16} />
+                  حجوزاتي وبياناتي (لوحة الطالب)
+                </button>
+              )}
 
-              {user?.role === "owner" && (
+              {(user?.role === "owner" || user?.role === "admin") && (
                 <button 
                   onClick={() => { setView("ownerDashboard"); setMenuOpen(false); }} 
                   className="text-right text-primary flex items-center gap-2" 
@@ -250,7 +256,9 @@ function Header({
               )}
             </SignedIn>
 
-            <button onClick={() => { setView("ownerPublic"); setMenuOpen(false); }} className="text-right hover:text-primary" data-testid="mobile-link-owners">للملاك (تفاصيل الخدمات والانضمام)</button>
+            {user?.role !== "student" && (
+              <button onClick={() => { setView("ownerPublic"); setMenuOpen(false); }} className="text-right hover:text-primary" data-testid="mobile-link-owners">للملاك (تفاصيل الخدمات والانضمام)</button>
+            )}
             <button onClick={() => { setView("listings"); go("how"); }} className="text-right hover:text-primary" data-testid="mobile-link-how">كيف تعمل مكاني؟</button>
           </nav>
         </div>
@@ -499,13 +507,23 @@ function Footer({
   onGoOwnerDashboard: () => void;
   onGoStudentDashboard: () => void;
 }) { 
+  const { user } = useUser();
+  const isStudent = user?.role === "student";
+  const isOwner = user?.role === "owner";
+
   return <footer className="border-t border-border bg-card/50"><div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8"><div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]"><div><img src={logo} alt="مكاني" className="logo-mark mb-3 h-16 w-16 object-contain" /><p className="text-sm font-semibold">اسكن بذكاء، ادرس بثقة</p><p className="mt-3 max-w-xs text-xs leading-6 text-muted-foreground">مكاني هي المنصة الذكية الأولى المتخصصة في تأمين وسكن الطلاب بجامعات مصر، تقدم وحدات موثقة، مطابقة ذكية، وعقود إلكترونية آمنة تضمن حقوق الطرفين.</p><div className="mt-5 flex gap-2 text-muted-foreground"><button onClick={() => openToast("تابعنا على إنستجرام")} aria-label="إنستجرام" data-testid="button-instagram"><Instagram size={17} /></button><button onClick={() => openToast("تابعنا على لينكدإن")} aria-label="لينكدإن" data-testid="button-linkedin"><Linkedin size={17} /></button><button onClick={() => openToast("تابعنا على فيسبوك")} aria-label="فيسبوك" data-testid="button-facebook"><Facebook size={17} /></button></div></div>
-  <div><h3 className="mb-4 text-sm font-bold">المنصة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={() => openToast("تصفح الوحدات المتاحة")} className="block text-right hover:text-primary">اكتشف السكن</button><button onClick={() => openToast("جرب مطابقة شركاء السكن بالذكاء الاصطناعي")} className="block text-right hover:text-primary">المطابقة الذكية</button><button onClick={onGoStudentDashboard} className="block text-right text-primary font-bold hover:underline" data-testid="footer-link-student-dashboard">لوحة الطالب وحجوزاتي</button></div></div>
-  <div><h3 className="mb-4 text-sm font-bold">بوابة الملاك</h3><div className="space-y-3 text-xs text-muted-foreground">
-    <button onClick={onGoOwnersPublic} className="block text-right text-primary font-bold hover:underline" data-testid="footer-link-owners-public">تفاصيل خدمات الملاك (الانضمام)</button>
-    <button onClick={onGoOwnerDashboard} className="block text-right hover:text-primary" data-testid="footer-link-owner-dashboard">لوحة تحكم المالك (Dashboard)</button>
-    <button onClick={() => openToast("رسوم الإدراج السنوية ١,٠٠٠ جنيه فقط لكل وحدة شاملة المعاينة والتصوير 360°")} className="block text-right hover:text-primary">رسوم الإدراج والباقات</button>
+  <div><h3 className="mb-4 text-sm font-bold">المنصة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={() => openToast("تصفح الوحدات المتاحة")} className="block text-right hover:text-primary">اكتشف السكن</button><button onClick={() => openToast("جرب مطابقة شركاء السكن بالذكاء الاصطناعي")} className="block text-right hover:text-primary">المطابقة الذكية</button>
+  {!isOwner && (
+    <button onClick={onGoStudentDashboard} className="block text-right text-primary font-bold hover:underline" data-testid="footer-link-student-dashboard">لوحة الطالب وحجوزاتي</button>
+  )}
   </div></div>
+  {!isStudent && (
+    <div><h3 className="mb-4 text-sm font-bold">بوابة الملاك</h3><div className="space-y-3 text-xs text-muted-foreground">
+      <button onClick={onGoOwnersPublic} className="block text-right text-primary font-bold hover:underline" data-testid="footer-link-owners-public">تفاصيل خدمات الملاك (الانضمام)</button>
+      <button onClick={onGoOwnerDashboard} className="block text-right hover:text-primary" data-testid="footer-link-owner-dashboard">لوحة تحكم المالك (Dashboard)</button>
+      <button onClick={() => openToast("رسوم الإدراج السنوية ١,٠٠٠ جنيه فقط لكل وحدة شاملة المعاينة والتصوير 360°")} className="block text-right hover:text-primary">رسوم الإدراج والباقات</button>
+    </div></div>
+  )}
   <div><h3 className="mb-4 text-sm font-bold">الدعم والشركة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={() => openToast("مركز مساعدة مكاني متاح على مدار الساعة عبر الواتساب: 01055332242")} className="block text-right hover:text-primary">مركز المساعدة والواتساب</button><button onClick={() => openToast("فريق الدعم: support@mkany.eg")} className="block text-right hover:text-primary">تواصل معنا</button><button onClick={() => openToast("تقرير السوق متاح للمستثمرين المسجلين")} className="block text-right hover:text-primary">تقرير السوق للمستثمرين <LockKeyhole className="inline" size={11} /></button></div></div>
   </div><div className="mt-10 flex flex-wrap gap-3 border-t border-border pt-6 text-[11px] font-semibold text-muted-foreground"><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><LockKeyhole size={13} className="text-primary" />SSL آمن</span><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><FileText size={13} className="text-primary" />رخصة رقم EG-2024-PROP</span><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><Crown size={13} className="text-amber-500" />أفضل ناشئة ٢٠٢٤</span></div><div className="mt-6 flex flex-col justify-between gap-2 text-xs text-muted-foreground sm:flex-row"><span>© ٢٠٢٤ مكاني — جميع الحقوق محفوظة</span><span>صنع للطلاب والملاك في مصر</span></div></div></footer>; 
 }
@@ -515,7 +533,34 @@ function AppContent() {
   const showOnboarding = Boolean(isSignedIn && user && isOnboardingRequired(user));
   const [light, setLight] = useState(false); 
   const [activeView, setActiveView] = useState<ActiveViewType>("listings"); 
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+
+  // مزامنة مسار URL مع العرض النشط عند التحميل أو الانتقال المباشر
+  useEffect(() => {
+    if (location === "/student" || location === "/student/dashboard") {
+      setActiveView("studentDashboard");
+    } else if (location === "/owner" || location === "/owner/dashboard") {
+      setActiveView("ownerDashboard");
+    } else if (location === "/owners") {
+      setActiveView("ownerPublic");
+    } else if (location === "/" || location === "/apartments") {
+      setActiveView("listings");
+    }
+  }, [location]);
+
+  // حماية المسارات الصارمة بناءً على دور المستخدم المعتمد من قاعدة البيانات
+  useEffect(() => {
+    if (!isSignedIn || !user) return;
+
+    if (user.role === "student" && activeView === "ownerDashboard") {
+      setActiveView("studentDashboard");
+      setLocation("/student/dashboard");
+      setToast("غير مصرح لطلاب الجامعات بزيارة لوحة المالك");
+    } else if (user.role === "owner" && activeView === "studentDashboard") {
+      setActiveView("ownerDashboard");
+      setLocation("/owner/dashboard");
+    }
+  }, [user?.role, activeView, isSignedIn]);
   const [platformProperties, setPlatformProperties] = useState<PlatformProperty[]>(() => getAllPlatformProperties());
   const [selected, setSelected] = useState<Property | null>(null); 
   const [saved, setSaved] = useState<number[]>([]); 
