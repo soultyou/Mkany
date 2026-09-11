@@ -55,12 +55,38 @@ export type RegisteredUser = StudentUser;
 interface AuthContextType {
   updateUserProfile: (data: Partial<StudentUser>) => void;
   switchRole: (role: "student" | "owner" | "admin") => void;
-  openSignIn: () => void;
-  openSignUp: () => void;
+  openSignIn: (props?: any) => void;
+  openSignUp: (props?: any) => void;
   localRoleOverride: "student" | "owner" | "admin" | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function InnerAuthProvider({ 
+  children, 
+  updateUserProfile, 
+  switchRole, 
+  localRoleOverride 
+}: { 
+  children: ReactNode;
+  updateUserProfile: (data: Partial<StudentUser>) => void;
+  switchRole: (role: "student" | "owner" | "admin") => void;
+  localRoleOverride: "student" | "owner" | "admin" | null;
+}) {
+  const clerk = useClerk();
+  
+  return (
+    <AuthContext.Provider value={{ 
+      updateUserProfile, 
+      switchRole, 
+      openSignIn: (props?: any) => clerk.openSignIn(props), 
+      openSignUp: (props?: any) => clerk.openSignUp(props), 
+      localRoleOverride 
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
 export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; onToast?: (msg: string) => void }) {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -83,15 +109,6 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     onToast?.("تم تحديث بيانات الحساب.");
   };
 
-  const openSignIn = () => { /* Clerk native */ };
-  const openSignUp = () => { /* Clerk native */ };
-
-  const providerContent = (
-    <AuthContext.Provider value={{ updateUserProfile, switchRole, openSignIn, openSignUp, localRoleOverride: localRole }}>
-      {children}
-    </AuthContext.Provider>
-  );
-
   if (!publishableKey || !publishableKey.startsWith("pk_")) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white p-4 text-center" dir="rtl">
@@ -103,18 +120,22 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     );
   }
 
-  const isDev = import.meta.env.DEV;
-  // Use a proxy URL only when explicitly configured for production
-  // Never hard-code /api/__clerk as the development proxy URL
-  const explicitProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-  const proxyUrl = (!isDev && explicitProxyUrl) ? explicitProxyUrl : undefined;
+  // Diagnostic logging - DO NOT log the whole key
+  console.log({
+    clerkPublishableKeyPrefix: publishableKey?.slice(0, 12),
+    isDev: import.meta.env.DEV,
+    origin: window.location.origin
+  });
 
   return (
-    <ClerkProvider 
-      publishableKey={publishableKey} 
-      {...(proxyUrl ? { proxyUrl } : {})}
-    >
-      {providerContent}
+    <ClerkProvider publishableKey={publishableKey}>
+      <InnerAuthProvider 
+        updateUserProfile={updateUserProfile}
+        switchRole={switchRole}
+        localRoleOverride={localRole}
+      >
+        {children}
+      </InnerAuthProvider>
     </ClerkProvider>
   );
 }
