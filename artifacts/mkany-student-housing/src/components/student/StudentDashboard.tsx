@@ -23,7 +23,7 @@ import {
   BookOpen,
   Image as ImageIcon
 } from "lucide-react";
-import { useAuth, EGYPTIAN_UNIVERSITIES } from "@/components/auth/clerk-auth";
+import { useAuth, EGYPTIAN_UNIVERSITIES, SignInButton } from "@/components/auth/clerk-auth";
 import { getStudentBookings, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 
@@ -67,12 +67,13 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
           </p>
 
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <button
-              onClick={openSignIn}
-              className="rounded-xl bg-primary px-7 py-3.5 text-sm font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
-            >
-              تسجيل الدخول كطالب 🎓
-            </button>
+            <SignInButton mode="modal">
+              <button
+                className="rounded-xl bg-primary px-7 py-3.5 text-sm font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
+              >
+                تسجيل الدخول كطالب 🎓
+              </button>
+            </SignInButton>
             <button
               onClick={onExploreProperties}
               className="rounded-xl border border-border bg-background px-6 py-3.5 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors"

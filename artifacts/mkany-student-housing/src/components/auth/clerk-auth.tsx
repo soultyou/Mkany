@@ -5,7 +5,8 @@ import {
   SignUpButton as ClerkSignUpButton,
   UserButton as ClerkUserButton,
   useUser as useClerkUser,
-  useAuth as useClerkAuth
+  useAuth as useClerkAuth,
+  useClerk
 } from "@clerk/react";
 
 export const EGYPTIAN_UNIVERSITIES = [
@@ -91,12 +92,28 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     </AuthContext.Provider>
   );
 
-  if (!publishableKey) {
-    return providerContent;
+  if (!publishableKey || !publishableKey.startsWith("pk_")) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white p-4 text-center" dir="rtl">
+        <div>
+          <h1 className="text-2xl font-bold text-rose-500 mb-2">مفتاح Clerk غير صالح أو غير متوفر</h1>
+          <p className="text-slate-400">يرجى إعداد VITE_CLERK_PUBLISHABLE_KEY بمفتاح صالح (يبدأ بـ pk_) في بيئة التشغيل للتمكن من تسجيل الدخول.</p>
+        </div>
+      </div>
+    );
   }
 
+  const isDev = import.meta.env.DEV;
+  // Use a proxy URL only when explicitly configured for production
+  // Never hard-code /api/__clerk as the development proxy URL
+  const explicitProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+  const proxyUrl = (!isDev && explicitProxyUrl) ? explicitProxyUrl : undefined;
+
   return (
-    <ClerkProvider publishableKey={publishableKey} proxyUrl="/api/__clerk">
+    <ClerkProvider 
+      publishableKey={publishableKey} 
+      {...(proxyUrl ? { proxyUrl } : {})}
+    >
       {providerContent}
     </ClerkProvider>
   );
@@ -106,6 +123,7 @@ export function useAuth() {
   const clerkAuth = useClerkAuth();
   const context = useContext(AuthContext);
   const { user } = useUser();
+  const clerk = useClerk();
   
   if (!context) {
     throw new Error("useAuth must be used within a ClerkAuthProvider");
@@ -115,6 +133,8 @@ export function useAuth() {
     ...clerkAuth,
     ...context,
     user,
+    openSignIn: (props?: any) => clerk.openSignIn(props),
+    openSignUp: (props?: any) => clerk.openSignUp(props),
   };
 }
 

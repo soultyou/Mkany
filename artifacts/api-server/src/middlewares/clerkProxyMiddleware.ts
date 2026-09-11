@@ -54,7 +54,11 @@ export function getClerkProxyHost(req: {
 
 export function clerkProxyMiddleware(): RequestHandler {
   const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) {
+  const explicitProxyUrl = process.env.VITE_CLERK_PROXY_URL || process.env.CLERK_PROXY_URL;
+  
+  // Disable proxy in development to avoid 307 redirects and local issues
+  // Only enable when an explicit production proxy URL is configured
+  if (process.env.NODE_ENV !== 'production' || !explicitProxyUrl || !secretKey || secretKey.startsWith('sk_test_')) {
     return (_req, _res, next) => next();
   }
 
