@@ -1,22 +1,39 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth, EGYPTIAN_UNIVERSITIES } from "./clerk-auth";
 import { StandardModal } from "@/components/ui/StandardModal";
-import { GraduationCap, Building2, User, Phone, CreditCard, School, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
+import { GraduationCap, Building2, User, Phone, CreditCard, School, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface OnboardingModalProps {
   isOpen: boolean;
+  mode?: "student" | "owner";
   onToast?: (msg: string) => void;
 }
 
-export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
+export function OnboardingModal({ isOpen, mode = "student", onToast }: OnboardingModalProps) {
   const { user, completeUserOnboarding } = useAuth();
-  const [accountType, setAccountType] = useState<"student" | "owner">("student");
   const [fullName, setFullName] = useState(user?.fullName || "");
-  const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber || "");
+  const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber && user.phoneNumber !== "01000000000" ? user.phoneNumber : "");
   const [nationalId, setNationalId] = useState(user?.nationalId && user.nationalId !== "00000000000000" ? user.nationalId : "");
   const [university, setUniversity] = useState(user?.university || EGYPTIAN_UNIVERSITIES[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      if (user.fullName && user.fullName !== "مستخدم مكاني") {
+        setFullName(user.fullName);
+      }
+      if (user.phoneNumber && user.phoneNumber !== "01000000000") {
+        setPhoneNumber(user.phoneNumber);
+      }
+      if (user.nationalId && user.nationalId !== "00000000000000") {
+        setNationalId(user.nationalId);
+      }
+      if (user.university) {
+        setUniversity(user.university);
+      }
+    }
+  }, [user]);
 
   if (!isOpen) return null;
 
@@ -35,7 +52,7 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
       return;
     }
 
-    if (accountType === "student") {
+    if (mode === "student") {
       const cleanNationalId = nationalId.trim();
       if (!/^\d{14}$/.test(cleanNationalId)) {
         setErrorMsg("الرقم القومي يجب أن يتكون من 14 رقماً بالضبط");
@@ -51,13 +68,13 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
 
     try {
       await completeUserOnboarding({
-        accountType,
+        accountType: mode,
         fullName: fullName.trim(),
         phoneNumber: cleanPhone,
-        nationalId: accountType === "student" ? nationalId.trim() : undefined,
-        university: accountType === "student" ? university : undefined,
+        nationalId: mode === "student" ? nationalId.trim() : undefined,
+        university: mode === "student" ? university : undefined,
       });
-      onToast?.("تم إكمال توثيق الحساب والدخول بنجاح!");
+      onToast?.(mode === "owner" ? "تم توثيق حساب المالك وتفعيله بنجاح!" : "تم توثيق حساب الطالب بنجاح!");
     } catch (err: any) {
       setErrorMsg(err?.message || "حدث خطأ أثناء حفظ بيانات الحساب.");
     } finally {
@@ -65,23 +82,41 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
     }
   };
 
+  const isOwnerMode = mode === "owner";
+
   return (
     <StandardModal
       isOpen={isOpen}
       onClose={() => {}} // Cannot dismiss onboarding without completing
-      maxWidthClassName="max-w-2xl"
+      maxWidthClassName="max-w-xl"
       hideHeader={true}
       testId="onboarding-modal"
     >
       <div className="p-6 sm:p-8 text-right font-sans" dir="rtl">
         {/* Header */}
         <div className="mb-6 border-b border-border pb-5 text-center sm:text-right">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary mb-2">
-            مرحباً بك في منصة مكاني 👋
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold mb-2 ${
+            isOwnerMode ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-primary/10 text-primary"
+          }`}>
+            {isOwnerMode ? (
+              <>
+                <Building2 size={14} />
+                تأكيد واستكمال حساب المالك 🏢
+              </>
+            ) : (
+              <>
+                <GraduationCap size={14} />
+                تأكيد واستكمال حساب الطالب 🎓
+              </>
+            )}
           </span>
-          <h2 className="text-2xl font-extrabold text-foreground sm:text-3xl">إكمال بيانات الحساب والتأكيد</h2>
-          <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-            يرجى تحديد نوع حسابك وإدخال بيانات التوثيق الرسمية للبدء في استخدام المنصة
+          <h2 className="text-2xl font-extrabold text-foreground sm:text-3xl">
+            {isOwnerMode ? "إكمال بيانات حساب المالك" : "إكمال بيانات حساب الطالب"}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground sm:text-sm leading-relaxed">
+            {isOwnerMode
+              ? "يرجى إدخال بيانات التوثيق والتواصل الخاصة بك كمالك عقار لإدارة وحداتك السكنية على منصة مكاني"
+              : "يرجى إدخال بياناتك الجامعية والرسمية للبدء في تصفح وحجز السكن الطلابي وتوثيق العقود"}
           </p>
         </div>
 
@@ -92,56 +127,7 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Step 1: Choose Account Type */}
-          <div>
-            <label className="block text-xs font-bold text-muted-foreground mb-3">اختر نوع الحساب في منصة مكاني:</label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setAccountType("student")}
-                className={`flex items-center gap-3.5 rounded-2xl border p-4 text-right transition-all ${
-                  accountType === "student"
-                    ? "border-primary bg-primary/10 ring-2 ring-primary/30"
-                    : "border-border bg-card hover:bg-muted/50"
-                }`}
-                data-testid="onboarding-select-student"
-              >
-                <div className={`rounded-xl p-3 shrink-0 ${accountType === "student" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                  <GraduationCap size={24} />
-                </div>
-                <div>
-                  <strong className="block text-sm font-bold text-foreground">أنا طالب جامعي 🎓</strong>
-                  <span className="text-[11px] text-muted-foreground leading-relaxed block mt-0.5">
-                    أبحث عن سكن، حجوزات شقق، وعقود موثقة مع الملاك
-                  </span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAccountType("owner")}
-                className={`flex items-center gap-3.5 rounded-2xl border p-4 text-right transition-all ${
-                  accountType === "owner"
-                    ? "border-primary bg-primary/10 ring-2 ring-primary/30"
-                    : "border-border bg-card hover:bg-muted/50"
-                }`}
-                data-testid="onboarding-select-owner"
-              >
-                <div className={`rounded-xl p-3 shrink-0 ${accountType === "owner" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                  <Building2 size={24} />
-                </div>
-                <div>
-                  <strong className="block text-sm font-bold text-foreground">أنا مالك عقار / مكتب 🏢</strong>
-                  <span className="text-[11px] text-muted-foreground leading-relaxed block mt-0.5">
-                    أعرض وحدات سكنية للطلاب، إدارات إيجار، وتوثيق عقود
-                  </span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Step 2: Form Fields */}
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-4 rounded-2xl border border-border/80 bg-muted/20 p-5">
             <div>
               <label className="block text-xs font-bold text-foreground mb-1.5">
@@ -179,7 +165,7 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
               </div>
             </div>
 
-            {accountType === "student" && (
+            {!isOwnerMode && (
               <>
                 <div>
                   <label className="block text-xs font-bold text-foreground mb-1.5">
@@ -229,7 +215,9 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-extrabold text-primary-foreground shadow-lg hover:-translate-y-0.5 disabled:opacity-50 transition-all"
+            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition-all ${
+              isOwnerMode ? "bg-amber-600 hover:bg-amber-700" : "bg-primary hover:bg-primary/90"
+            }`}
             data-testid="onboarding-submit-btn"
           >
             {isSubmitting ? (
@@ -240,7 +228,7 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
             ) : (
               <>
                 <CheckCircle2 size={18} />
-                حفظ بيانات الحساب ومتابعة الدخول
+                {isOwnerMode ? "تأكيد وإنشاء حساب المالك 🏢" : "تأكيد وإنشاء حساب الطالب 🎓"}
               </>
             )}
           </button>
@@ -249,3 +237,4 @@ export function OnboardingModal({ isOpen, onToast }: OnboardingModalProps) {
     </StandardModal>
   );
 }
+

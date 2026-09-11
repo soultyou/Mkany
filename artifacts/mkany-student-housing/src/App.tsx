@@ -535,6 +535,11 @@ function AppContent() {
   const [activeView, setActiveView] = useState<ActiveViewType>("listings"); 
   const [location, setLocation] = useLocation();
 
+  const onboardingMode: "student" | "owner" =
+    activeView === "ownerPublic" || activeView === "ownerDashboard" || location.startsWith("/owner") || location.startsWith("/owners")
+      ? "owner"
+      : "student";
+
   // مزامنة مسار URL مع العرض النشط عند التحميل أو الانتقال المباشر
   useEffect(() => {
     if (location === "/student" || location === "/student/dashboard") {
@@ -766,7 +771,7 @@ function AppContent() {
         />
       )}
 
-      <OnboardingModal isOpen={showOnboarding} onToast={setToast} />
+      <OnboardingModal isOpen={showOnboarding} mode={onboardingMode} onToast={setToast} />
 
 
 
