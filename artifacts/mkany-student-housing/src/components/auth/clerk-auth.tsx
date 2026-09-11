@@ -59,7 +59,8 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
 
   useEffect(() => {
     if (!publishableKey || !publishableKey.startsWith("pk_")) {
-      setClerkError(new Error("Missing or invalid VITE_CLERK_PUBLISHABLE_KEY. It must start with pk_"));
+      console.warn("VITE_CLERK_PUBLISHABLE_KEY is not set or invalid. Running in guest mode.");
+      setClerkLoaded(true);
       return;
     }
 
@@ -221,12 +222,16 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
         if (clerkInstance) {
           const signInUrl = clerkInstance.buildSignInUrl({ redirectUrl: window.location.href });
           window.open(signInUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
+        } else {
+          onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لتسجيل الدخول الفعلي");
         }
       },
       openSignUp: (props?: any) => {
         if (clerkInstance) {
           const signUpUrl = clerkInstance.buildSignUpUrl({ redirectUrl: window.location.href });
           window.open(signUpUrl, 'clerk-auth-popup', 'width=600,height=700,status=yes,scrollbars=yes');
+        } else {
+          onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لإنشاء حساب فعلي");
         }
       },
       signOut: async () => { await clerkInstance?.signOut(); },

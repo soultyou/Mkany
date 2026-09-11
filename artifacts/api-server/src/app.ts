@@ -39,22 +39,23 @@ app.use(express.urlencoded({ extended: true }));
 // Safe clerk middleware application
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === "/api/healthz" || req.path === "/healthz") {
-    return next();
+    next();
+    return;
   }
   
   const publishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const secretKey = process.env.CLERK_SECRET_KEY;
 
   if (secretKey && publishableKey) {
-    return clerkMiddleware({
+    clerkMiddleware({
       publishableKey,
       secretKey
     })(req, res, next);
+    return;
   } else {
     logger.warn("Clerk keys are missing. Authentication is disabled/bypassed.");
-    // We should probably set auth to null so downstream middlewares don't crash, 
-    // or we just return 401 if it's an authenticated route. For now, next().
     next();
+    return;
   }
 });
 

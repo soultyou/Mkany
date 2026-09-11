@@ -10,19 +10,19 @@ const router = Router();
 router.get("/", async (req, res) => {
   try {
     const { city, university, minPrice, maxPrice, bedrooms, page = "1", limit = "10" } = req.query;
-    const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 10;
+    const pageNum = parseInt(page as string, 10) || 1;
+    const limitNum = parseInt(limit as string, 10) || 10;
     const offset = (pageNum - 1) * limitNum;
 
-    let conditions = [];
+    const conditions = [];
     if (city) conditions.push(eq(apartments.city, city as string));
     if (university) conditions.push(eq(apartments.university, university as string));
-    if (minPrice) conditions.push(sql`${apartments.price} >= ${parseInt(minPrice as string)}`);
-    if (maxPrice) conditions.push(sql`${apartments.price} <= ${parseInt(maxPrice as string)}`);
-    if (bedrooms) conditions.push(eq(apartments.bedrooms, parseInt(bedrooms as string)));
+    if (minPrice) conditions.push(sql`${apartments.pricePerMonth} >= ${parseInt(minPrice as string, 10)}`);
+    if (maxPrice) conditions.push(sql`${apartments.pricePerMonth} <= ${parseInt(maxPrice as string, 10)}`);
+    if (bedrooms) conditions.push(eq(apartments.bedrooms, parseInt(bedrooms as string, 10)));
     
     // Only show available apartments when browsing
-    conditions.push(eq(apartments.isAvailable, true));
+    conditions.push(eq(apartments.status, "متاح"));
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -43,17 +43,22 @@ router.get("/", async (req, res) => {
       }
     });
 
-    res.json(data);
+    return res.json(data);
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.get("/:id", async (req, res) => {
   try {
+    const apartmentId = parseInt(req.params.id as string, 10);
+    if (Number.isNaN(apartmentId)) {
+      return res.status(400).json({ error: "Invalid apartment ID" });
+    }
+
     const data = await db.query.apartments.findFirst({
-      where: eq(apartments.id, req.params.id),
+      where: eq(apartments.id, apartmentId),
       with: {
         photos: {
           orderBy: [asc(apartmentPhotos.displayOrder)]
@@ -72,10 +77,10 @@ router.get("/:id", async (req, res) => {
     if (!data) {
       return res.status(404).json({ error: "Not found" });
     }
-    res.json(data);
+    return res.json(data);
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -94,15 +99,19 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       ownerId: dbUser.id
     }).returning();
     
-    res.status(201).json(apartment);
+    return res.status(201).json(apartment);
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
   const dbUser = req.dbUser!;
+  const apartmentId = parseInt(req.params.id as string, 10);
+  if (Number.isNaN(apartmentId)) {
+    return res.status(400).json({ error: "Invalid apartment ID" });
+  }
   
   const result = insertApartmentSchema.partial().safeParse(req.body);
   if (!result.success) {
@@ -112,7 +121,7 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
   try {
     // Check ownership
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, req.params.id), eq(apartments.ownerId, dbUser.id))
+      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
     });
     
     if (!existing) {
@@ -124,41 +133,49 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
         ...result.data,
         updatedAt: new Date()
       })
-      .where(eq(apartments.id, req.params.id))
+      .where(eq(apartments.id, apartmentId))
       .returning();
       
-    res.json(updated);
+    return res.json(updated);
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.delete("/:id", requireAuth, requireOwner, async (req, res) => {
   const dbUser = req.dbUser!;
+  const apartmentId = parseInt(req.params.id as string, 10);
+  if (Number.isNaN(apartmentId)) {
+    return res.status(400).json({ error: "Invalid apartment ID" });
+  }
   
   try {
     // Check ownership
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, req.params.id), eq(apartments.ownerId, dbUser.id))
+      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
     });
     
     if (!existing) {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
     
-    await db.delete(apartments).where(eq(apartments.id, req.params.id));
-    res.status(204).send();
+    await db.delete(apartments).where(eq(apartments.id, apartmentId));
+    return res.status(204).send();
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 // Photo management
 router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
   const dbUser = req.dbUser!;
-  const url = req.body.url;
+  const apartmentId = parseInt(req.params.id as string, 10);
+  if (Number.isNaN(apartmentId)) {
+    return res.status(400).json({ error: "Invalid apartment ID" });
+  }
+  const { url, isCover, displayOrder } = req.body;
   
   if (typeof url !== 'string' || !url.startsWith('http')) {
     return res.status(400).json({ error: "Bad Request: invalid url" });
@@ -166,7 +183,7 @@ router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
   
   try {
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, req.params.id), eq(apartments.ownerId, dbUser.id))
+      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
     });
     
     if (!existing) {
@@ -174,23 +191,30 @@ router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
     }
     
     const [photo] = await db.insert(apartmentPhotos).values({
-      apartmentId: req.params.id,
-      url: result.data.url
+      apartmentId,
+      url,
+      isCover: Boolean(isCover),
+      displayOrder: typeof displayOrder === "number" ? displayOrder : 0
     }).returning();
     
-    res.status(201).json(photo);
+    return res.status(201).json(photo);
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
 router.delete("/:id/photos/:photoId", requireAuth, requireOwner, async (req, res) => {
   const dbUser = req.dbUser!;
+  const apartmentId = parseInt(req.params.id as string, 10);
+  const photoId = req.params.photoId as string;
+  if (Number.isNaN(apartmentId) || !photoId) {
+    return res.status(400).json({ error: "Invalid apartment ID or photo ID" });
+  }
   
   try {
     const existing = await db.query.apartments.findFirst({
-      where: and(eq(apartments.id, req.params.id), eq(apartments.ownerId, dbUser.id))
+      where: and(eq(apartments.id, apartmentId), eq(apartments.ownerId, dbUser.id))
     });
     
     if (!existing) {
@@ -198,14 +222,14 @@ router.delete("/:id/photos/:photoId", requireAuth, requireOwner, async (req, res
     }
     
     await db.delete(apartmentPhotos).where(and(
-      eq(apartmentPhotos.id, req.params.photoId),
-      eq(apartmentPhotos.apartmentId, req.params.id)
+      eq(apartmentPhotos.id, photoId),
+      eq(apartmentPhotos.apartmentId, apartmentId)
     ));
     
-    res.status(204).send();
+    return res.status(204).send();
   } catch (error) {
     req.log.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
