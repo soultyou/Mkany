@@ -44,5 +44,6 @@ export const insertUserSchema = createInsertSchema(users, {
 
 export const selectUserSchema = createSelectSchema(users);
 
+export type UserRole = "student" | "owner" | "admin" | "super_admin";
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

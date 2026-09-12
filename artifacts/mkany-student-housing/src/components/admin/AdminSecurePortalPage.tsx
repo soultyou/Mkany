@@ -18,6 +18,13 @@ export function AdminSecurePortalPage() {
   const [portalToast, setPortalToast] = useState("");
 
   useEffect(() => {
+    const adminPanelUrl = (import.meta as any).env?.VITE_ADMIN_PANEL_URL;
+    if (adminPanelUrl) {
+      window.location.href = adminPanelUrl;
+    }
+  }, []);
+
+  useEffect(() => {
     if (!portalToast) return;
     const t = window.setTimeout(() => setPortalToast(""), 2800);
     return () => clearTimeout(t);
@@ -31,7 +38,7 @@ export function AdminSecurePortalPage() {
     };
   }, []);
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
   return (
     <div className="min-h-screen bg-background text-foreground" data-testid="authenticated-admin-portal">

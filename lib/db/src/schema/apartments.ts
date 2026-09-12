@@ -22,6 +22,7 @@ export const apartments = pgTable("apartments", {
   currentRoommates: integer("current_roommates").default(0).notNull(),
   images: jsonb("images").$type<string[]>().default([]).notNull(),
   video360Url: text("video_360_url"),
+  model3dUrl: text("model_3d_url"),
   verified: boolean("verified").default(false).notNull(),
   premium: boolean("premium").default(false).notNull(),
   livabilityScore: integer("livability_score").default(0).notNull(),
@@ -64,13 +65,14 @@ export const insertApartmentSchema = createInsertSchema(apartments, {
   currentRoommates: (schema) => schema.optional(),
   images: (schema) => schema.optional(),
   video360Url: (schema) => schema.optional(),
+  model3dUrl: (schema) => schema.optional(),
   verified: (schema) => schema.optional(),
   premium: (schema) => schema.optional(),
   livabilityScore: (schema) => schema.optional(),
   status: (schema) => schema.optional(),
   lat: (schema) => schema.optional(),
   lng: (schema) => schema.optional(),
-  nearbyAmenities: (schema) => schema.optional(),
+  nearbyAmenities: (schema: any) => schema.optional(),
   inspectionId: (schema) => schema.optional(),
 }).omit({ ownerId: true, createdAt: true, updatedAt: true, id: true });
 

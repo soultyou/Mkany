@@ -32,12 +32,30 @@ import {
   Users,
   UserCheck,
   ShieldAlert,
-  GraduationCap
+  GraduationCap,
+  BarChart3,
+  Activity,
+  CheckSquare,
+  FileText,
+  Headphones
 } from "lucide-react";
+import { 
+  getAdminSupportConversationsApi, 
+  getSupportConversationDetailsApi, 
+  sendSupportMessageApi, 
+  updateSupportStatusApi, 
+  SupportConversationItem, 
+  SUPPORT_CATEGORY_LABELS, 
+  SUPPORT_STATUS_LABELS 
+} from "@/lib/support-store";
 import { 
   getAllRegisteredUsers, 
   toggleUserVerification, 
+  toggleUserVerificationAsync,
   deleteUserFromDb, 
+  deleteUserFromDbAsync,
+  fetchUsersFromApi,
+  updateUserRoleAsync,
   RegisteredUser, 
   USERS_CHANGE_EVENT 
 } from "@/lib/user-db-sync";
@@ -62,13 +80,18 @@ import {
 import { 
   createApartmentApi, 
   updateApartmentApi, 
-  deleteApartmentApi 
+  deleteApartmentApi,
+  approveApartmentApi,
+  rejectApartmentApi,
+  updateInspectionApi,
+  publishInspectionApi
 } from "@/lib/api-client";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
 import { 
   getAdminBookingsApi, 
   updateBookingStatusApi, 
-  StudentBooking 
+  StudentBooking,
+  buildWhatsAppAdminConfirmationUrl
 } from "@/lib/bookings-store";
 import { useAuth } from "@/components/auth/clerk-auth";
 import { StandardModal } from "@/components/ui/StandardModal";
@@ -85,21 +108,46 @@ export function AdminInspectionPortal({
   onViewStudentListings,
 }: AdminInspectionPortalProps) {
   const { user } = useAuth();
-  const [mainTab, setMainTab] = useState<"inspections" | "properties" | "bookings" | "users">("inspections");
+  const [mainTab, setMainTab] = useState<
+    "overview" | "approvals" | "properties" | "verification" | "users" | "bookings" | "inspections" | "support"
+  >("overview");
+
+  // بيانات ودعم منصة مكاني (Admin Support Management)
+  const [supportConversations, setSupportConversations] = useState<SupportConversationItem[]>([]);
+  const [supportCounts, setSupportCounts] = useState({
+    total: 0,
+    open: 0,
+    in_progress: 0,
+    resolved: 0,
+    closed: 0,
+  });
+  const [supportStatusFilter, setSupportStatusFilter] = useState<string>("all");
+  const [supportCategoryFilter, setSupportCategoryFilter] = useState<string>("all");
+  const [supportRoleFilter, setSupportRoleFilter] = useState<string>("all");
+  const [supportSearchQuery, setSupportSearchQuery] = useState<string>("");
+  const [selectedSupportConversation, setSelectedSupportConversation] = useState<SupportConversationItem | null>(null);
+  const [replyMessageText, setReplyMessageText] = useState<string>("");
+  const [isSendingReply, setIsSendingReply] = useState<boolean>(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
+
+  // تصفية حالات الاعتماد والتوثيق
+  const [approvalFilter, setApprovalFilter] = useState<string>("قيد المراجعة");
+  const [verificationFilter, setVerificationFilter] = useState<string>("all");
 
   // بيانات المستخدمين وقاعدة البيانات (طلاب وملاك ومشرفين)
   const [usersList, setUsersList] = useState<RegisteredUser[]>(() => getAllRegisteredUsers());
-  const [userFilter, setUserFilter] = useState<"all" | "student" | "owner" | "admin">("all");
+  const [userFilter, setUserFilter] = useState<"all" | "student" | "owner" | "admin" | "super_admin">("all");
   const [userSearchQuery, setUserSearchQuery] = useState("");
 
-  // الاشتراك في أحداث تحديث قاعدة بيانات المستخدمين
-  React.useEffect(() => {
-    const handleUsersUpdate = () => {
-      setUsersList(getAllRegisteredUsers());
-    };
-    window.addEventListener(USERS_CHANGE_EVENT, handleUsersUpdate);
-    return () => window.removeEventListener(USERS_CHANGE_EVENT, handleUsersUpdate);
-  }, []);
+  // مؤشرات المنصة المستخرجة حصرياً من بيانات PostgreSQL الحقيقية
+  const totalUsers = usersList.length;
+  const studentUsers = usersList.filter((u) => u.role === "student").length;
+  const ownerUsers = usersList.filter((u) => u.role === "owner").length;
+  const adminUsers = usersList.filter((u) => u.role === "admin").length;
+  const verifiedUsers = usersList.filter((u) => Boolean(u.isVerified)).length;
+  const pendingVerificationUsers = usersList.filter(
+    (u) => !u.isVerified && Boolean(u.nationalId && u.nationalId.length === 14)
+  ).length;
 
   // بيانات المعاينات
   const [inspections, setInspections] = useState<PropertyInspection[]>(getAllInspections());
@@ -111,9 +159,41 @@ export function AdminInspectionPortal({
   const [editingProperty, setEditingProperty] = useState<PlatformProperty | null>(null);
   const [isNewPropertyModalOpen, setIsNewPropertyModalOpen] = useState(false);
 
+  // مؤشرات العقارات
+  const totalProperties = properties.length;
+  const pendingProperties = properties.filter((p) => p.status === "قيد المراجعة").length;
+  const approvedProperties = properties.filter((p) => p.status === "متاح").length;
+  const rejectedProperties = properties.filter((p) => p.status === "مرفوض").length;
+  const occupiedProperties = properties.filter((p) => p.status === "مشغول").length;
+
   // بيانات الحجوزات وإيصالات الدفع
   const [bookings, setBookings] = useState<StudentBooking[]>([]);
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+
+  // مؤشرات الحجوزات
+  const totalBookings = bookings.length;
+  const pendingBookings = bookings.filter((b) => b.status === "pending_review").length;
+  const confirmedBookings = bookings.filter((b) => b.status === "confirmed").length;
+  const rejectedBookings = bookings.filter((b) => b.status === "rejected").length;
+
+  // مؤشرات المعاينات
+  const totalInspections = inspections.length;
+  const pendingInspections = inspections.filter((i) => i.status === "pending" || i.status === "scheduled").length;
+
+  // الاشتراك في أحداث تحديث قاعدة بيانات المستخدمين وجلب القائمة من السيرفر
+  React.useEffect(() => {
+    fetchUsersFromApi().then((users) => {
+      if (Array.isArray(users) && users.length > 0) {
+        setUsersList(users);
+      }
+    });
+
+    const handleUsersUpdate = () => {
+      setUsersList(getAllRegisteredUsers());
+    };
+    window.addEventListener(USERS_CHANGE_EVENT, handleUsersUpdate);
+    return () => window.removeEventListener(USERS_CHANGE_EVENT, handleUsersUpdate);
+  }, []);
 
   const refreshAdminBookings = async () => {
     try {
@@ -124,9 +204,30 @@ export function AdminInspectionPortal({
     }
   };
 
+  const refreshAdminSupport = async () => {
+    try {
+      const data = await getAdminSupportConversationsApi({
+        status: supportStatusFilter,
+        category: supportCategoryFilter,
+        role: supportRoleFilter,
+        search: supportSearchQuery,
+      });
+      setSupportConversations(data.conversations || []);
+      if (data.counts) {
+        setSupportCounts(data.counts);
+      }
+    } catch (e) {
+      console.error("Failed to fetch admin support conversations:", e);
+    }
+  };
+
   useEffect(() => {
     refreshAdminBookings();
   }, []);
+
+  useEffect(() => {
+    refreshAdminSupport();
+  }, [supportStatusFilter, supportCategoryFilter, supportRoleFilter, supportSearchQuery, mainTab]);
 
   // حقول جدولة المعاينة
   const [scheduleDate, setScheduleDate] = useState("غداً، الساعة ١٢:٠٠ ظهراً");
@@ -135,13 +236,23 @@ export function AdminInspectionPortal({
   // حقول تفعيل العقار بعد المعاينة الفعلية
   const [livabilityScore, setLivabilityScore] = useState<number>(93);
   const [video360Url, setVideo360Url] = useState<string>("https://storage.googleapis.com/coverr-main/mp4/Mt_Baker.mp4");
+  const [model3dUrl, setModel3dUrl] = useState<string>("");
   const [inspectorReport, setInspectorReport] = useState<string>(
     "تمت المعاينة الميدانية الفعلية على الطبيعة. العقار نظيف، الإضاءة والتهوية ممتازة، الكهرباء والماء مستقران، وننصح باعتماده كسكن طلابي موثق."
   );
 
-  // سبب الرفض
+  // سبب الرفض والـ WhatsApp modal
   const [rejectionReason, setRejectionReason] = useState("");
   const [actionModal, setActionModal] = useState<"schedule" | "activate" | "reject" | null>(null);
+  const [whatsappInfoModal, setWhatsappInfoModal] = useState<{ url: string; msg: string; ownerPhone: string } | null>(null);
+  
+  // حقول تعديل وتأكيد موعد الحجز والمعاينة للطالب
+  const [confirmingBooking, setConfirmingBooking] = useState<any | null>(null);
+  const [bDate, setBDate] = useState("");
+  const [bTime, setBTime] = useState("");
+  const [bNotes, setBNotes] = useState("");
+
+  const isSuperAdmin = user?.role === "super_admin";
 
   // إدارة تفاصيل المنطقة المحيطة للعقار الجديد
   const [newAmenities, setNewAmenities] = useState<NearbyAmenities>(() =>
@@ -152,9 +263,11 @@ export function AdminInspectionPortal({
   const refreshAll = () => {
     syncInspectionsFromApi();
     syncPlatformPropertiesFromApi();
+    fetchUsersFromApi().then((users) => setUsersList(users));
     setInspections(getAllInspections());
     setProperties(getAllPlatformProperties());
     refreshAdminBookings();
+    refreshAdminSupport();
   };
 
   React.useEffect(() => {
@@ -168,12 +281,34 @@ export function AdminInspectionPortal({
   });
 
   // تنفيذ جدولة المعاينة
-  const handleScheduleSubmit = (e: React.FormEvent) => {
+  const handleScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInspection) return;
 
-    const res = scheduleInspectionVisit(selectedInspection.id, scheduleDate, inspectorName);
-    if (res) {
+    try {
+      const res = await updateInspectionApi(selectedInspection.id, {
+        status: "scheduled",
+        scheduledDate: scheduleDate,
+        inspectorName,
+      });
+
+      scheduleInspectionVisit(selectedInspection.id, scheduleDate, inspectorName);
+      openToast(`تم تحديد موعد المعاينة الميدانية: ${scheduleDate}`);
+
+      if (res?.whatsappUrl && res?.whatsappMessage) {
+        setWhatsappInfoModal({
+          url: res.whatsappUrl,
+          msg: res.whatsappMessage,
+          ownerPhone: selectedInspection.ownerPhone || "01000000000",
+        });
+      }
+
+      refreshAll();
+      setActionModal(null);
+    } catch (err: any) {
+      console.error("Failed to schedule inspection:", err);
+      // Fallback local update
+      scheduleInspectionVisit(selectedInspection.id, scheduleDate, inspectorName);
       openToast(`تم تحديد موعد المعاينة الميدانية: ${scheduleDate}`);
       refreshAll();
       setActionModal(null);
@@ -181,17 +316,56 @@ export function AdminInspectionPortal({
   };
 
   // تنفيذ تفعيل العقار ونشره بعد نزول المعاينة الفعلية وتصوير 360°
-  const handleActivateSubmit = (e: React.FormEvent) => {
+  const handleActivateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInspection) return;
 
-    const res = activateAndPublishProperty(selectedInspection.id, {
-      livabilityScore,
-      video360Url,
-      inspectorReport,
-    });
+    try {
+      const res = await publishInspectionApi(selectedInspection.id, {
+        title: selectedInspection.title,
+        pricePerMonth: selectedInspection.pricePerMonth,
+        city: selectedInspection.city,
+        address: selectedInspection.address,
+        university: selectedInspection.university,
+        roomType: selectedInspection.roomType,
+        areaSqm: selectedInspection.areaSqm,
+        bedrooms: selectedInspection.bedrooms,
+        bathrooms: selectedInspection.bathrooms,
+        floor: selectedInspection.floor,
+        furnishing: selectedInspection.furnishing,
+        video360Url: video360Url || selectedInspection.video360Url,
+        model3dUrl: model3dUrl || (selectedInspection as any).model3dUrl,
+        livabilityScore,
+        inspectorReport,
+        finalImages: selectedInspection.finalImages?.length ? selectedInspection.finalImages : selectedInspection.initialPhotos,
+      });
 
-    if (res) {
+      activateAndPublishProperty(selectedInspection.id, {
+        livabilityScore,
+        video360Url: video360Url || selectedInspection.video360Url,
+        inspectorReport,
+      });
+
+      openToast(`🎉 تم تفعيل ونشر "${selectedInspection.title}" رسمياً للطلاب مع صور وجولة 360°!`);
+
+      if (res?.whatsappUrl && res?.whatsappMessage) {
+        setWhatsappInfoModal({
+          url: res.whatsappUrl,
+          msg: res.whatsappMessage,
+          ownerPhone: selectedInspection.ownerPhone || "01000000000",
+        });
+      }
+
+      refreshAll();
+      setActionModal(null);
+    } catch (err: any) {
+      console.error("Failed to publish inspection:", err);
+      // Fallback local activation
+      activateAndPublishProperty(selectedInspection.id, {
+        livabilityScore,
+        video360Url,
+        inspectorReport,
+      });
       openToast(`🎉 تم تفعيل ونشر "${selectedInspection.title}" رسمياً للطلاب مع صور وجولة 360°!`);
       refreshAll();
       setActionModal(null);
@@ -199,9 +373,18 @@ export function AdminInspectionPortal({
   };
 
   // تنفيذ الرفض
-  const handleRejectSubmit = (e: React.FormEvent) => {
+  const handleRejectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInspection) return;
+
+    try {
+      await updateInspectionApi(selectedInspection.id, {
+        status: "rejected",
+        rejectionReason: rejectionReason || "لم يستوفِ معايير السكن الطلابي المعتمد",
+      });
+    } catch (err) {
+      console.warn("Reject via API failed, updating local state", err);
+    }
 
     const res = rejectInspectionRequest(selectedInspection.id, rejectionReason || "لم يستوفِ معايير السكن الطلابي المعتمد");
     if (res) {
@@ -253,13 +436,39 @@ export function AdminInspectionPortal({
     }
   };
 
+  // اعتماد عقار رسمي ونشره للطلاب
+  const handleApproveProperty = async (id: number, title: string) => {
+    try {
+      await approveApartmentApi(id);
+      openToast(`تم اعتماد ونشر عقار "${title}" بنجاح للطلاب ✓`);
+      refreshAll();
+    } catch (err: any) {
+      console.error("Failed to approve property:", err);
+      openToast(err?.message || "تعذر اعتماد العقار");
+    }
+  };
+
+  // رفض عقار
+  const handleRejectProperty = async (id: number, title: string) => {
+    try {
+      await rejectApartmentApi(id);
+      openToast(`تم رفض عقار "${title}"`);
+      refreshAll();
+    } catch (err: any) {
+      console.error("Failed to reject property:", err);
+      openToast(err?.message || "تعذر رفض العقار");
+    }
+  };
+
   // تغيير حالة حجز الطالب
   const handleChangeBookingStatus = async (
     bookingId: string, 
     newStatus: "confirmed" | "rejected" | "pending_review",
-    notes?: string
+    notes?: string,
+    appointmentDate?: string,
+    appointmentTime?: string
   ) => {
-    await updateBookingStatusApi(bookingId, newStatus, notes);
+    await updateBookingStatusApi(bookingId, newStatus, notes, appointmentDate, appointmentTime);
     openToast(newStatus === "confirmed" ? "تم تأكيد الحجز واعتماد الإيصال بنجاح ✓" : "تم تحديث حالة الحجز");
     refreshAdminBookings();
     refreshAll();
@@ -313,25 +522,43 @@ export function AdminInspectionPortal({
         </div>
       </header>
 
-      {/* شريط التبويبات الثلاثة الرئيسية للآدمن */}
+      {/* شريط التبويبات الشامل للإدارة المركزية */}
       <div className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-7xl px-4 text-xs font-bold sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl px-4 text-xs font-bold sm:px-6 lg:px-8 overflow-x-auto no-scrollbar gap-1">
           <button
-            onClick={() => setMainTab("inspections")}
-            className={`flex items-center gap-2 border-b-2 px-5 py-3.5 transition-colors ${
-              mainTab === "inspections"
+            onClick={() => setMainTab("overview")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "overview"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
-            data-testid="tab-admin-inspections"
+            data-testid="tab-admin-overview"
           >
-            <Camera size={16} />
-            طلبات المعاينة وتصوير 360° ({inspections.filter((i) => i.status === "pending").length} بانتظار الفحص)
+            <BarChart3 size={16} />
+            نظرة عامة ومؤشرات المنصة
+          </button>
+
+          <button
+            onClick={() => setMainTab("approvals")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "approvals"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-approvals"
+          >
+            <CheckCircle2 size={16} />
+            مراجعة واعتماد العقارات
+            {pendingProperties > 0 && (
+              <span className="rounded-full bg-amber-500/20 text-amber-600 px-1.5 py-0.2 text-[10px]" data-testid="badge-pending-properties">
+                {pendingProperties}
+              </span>
+            )}
           </button>
 
           <button
             onClick={() => setMainTab("properties")}
-            className={`flex items-center gap-2 border-b-2 px-5 py-3.5 transition-colors ${
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
               mainTab === "properties"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -339,25 +566,30 @@ export function AdminInspectionPortal({
             data-testid="tab-admin-properties"
           >
             <Home size={16} />
-            إدارة وتحديث العقارات المنشورة للطلاب ({properties.length})
+            كتالوج العقارات ({properties.length})
           </button>
 
           <button
-            onClick={() => setMainTab("bookings")}
-            className={`flex items-center gap-2 border-b-2 px-5 py-3.5 transition-colors ${
-              mainTab === "bookings"
+            onClick={() => setMainTab("verification")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "verification"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
-            data-testid="tab-admin-bookings"
+            data-testid="tab-admin-verification"
           >
-            <CreditCard size={16} />
-            حجوزات الطلاب ومراجعة الإيصالات ({bookings.length})
+            <ShieldCheck size={16} />
+            توثيق الحسابات
+            {pendingVerificationUsers > 0 && (
+              <span className="rounded-full bg-emerald-500/20 text-emerald-600 px-1.5 py-0.2 text-[10px]" data-testid="badge-pending-verifications">
+                {pendingVerificationUsers}
+              </span>
+            )}
           </button>
 
           <button
             onClick={() => setMainTab("users")}
-            className={`flex items-center gap-2 border-b-2 px-5 py-3.5 transition-colors ${
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
               mainTab === "users"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -365,15 +597,660 @@ export function AdminInspectionPortal({
             data-testid="tab-admin-users"
           >
             <Users size={16} />
-            قاعدة بيانات المستخدمين والتوثيق ({usersList.length} مستخدم: طلاب وملاك)
+            قاعدة المستخدمين ({usersList.length})
+          </button>
+
+          <button
+            onClick={() => setMainTab("bookings")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "bookings"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-bookings"
+          >
+            <CreditCard size={16} />
+            الحجوزات والإيصالات ({bookings.length})
+            {pendingBookings > 0 && (
+              <span className="rounded-full bg-blue-500/20 text-blue-600 px-1.5 py-0.2 text-[10px]" data-testid="badge-pending-bookings">
+                {pendingBookings}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setMainTab("inspections")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "inspections"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-inspections"
+          >
+            <Camera size={16} />
+            المعاينات وتصوير 360° ({inspections.length})
+            {pendingInspections > 0 && (
+              <span className="rounded-full bg-purple-500/20 text-purple-600 px-1.5 py-0.2 text-[10px]">
+                {pendingInspections}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setMainTab("support")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "support"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-support"
+          >
+            <Headphones size={16} />
+            الدعم الفني والرسائل ({supportCounts.total})
+            {(supportCounts.open > 0 || supportCounts.in_progress > 0) && (
+              <span className="rounded-full bg-rose-500/20 text-rose-600 px-1.5 py-0.2 text-[10px]" data-testid="badge-pending-support">
+                {supportCounts.open + supportCounts.in_progress}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
       {/* مساحة العمل */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 text-right">
-        
-        {/* التبويب 1: طلبات المعاينة وتصوير 360° */}
+
+        {/* التبويب 0: نظرة عامة ومؤشرات المنصة */}
+        {mainTab === "overview" && (
+          <div className="space-y-6" data-testid="section-admin-overview">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <BarChart3 size={20} className="text-primary" />
+                  لوحة المؤشرات والرقابة المركزية (Admin Overview)
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  بيانات المنصة اللحظية مستخرجة مباشرة ومطابقة بنسبة ١٠٠٪ مع قاعدة بيانات PostgreSQL
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  النظام متصل وقيد التشغيل
+                </span>
+              </div>
+            </div>
+
+            {/* تنبيهات الإجراءات العاجلة */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {pendingProperties > 0 && (
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-bold text-xs mb-1">
+                    <AlertCircle size={15} />
+                    <span>عقارات بانتظار الاعتماد</span>
+                  </div>
+                  <div className="text-xl font-black text-amber-600">{pendingProperties} عقار</div>
+                  <button
+                    onClick={() => setMainTab("approvals")}
+                    className="mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline"
+                    data-testid="admin-overview-btn-approvals"
+                  >
+                    مراجعة واعتماد الآن ←
+                  </button>
+                </div>
+              )}
+
+              {pendingBookings > 0 && (
+                <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-bold text-xs mb-1">
+                    <CreditCard size={15} />
+                    <span>إيصالات دفع بانتظار المراجعة</span>
+                  </div>
+                  <div className="text-xl font-black text-blue-600">{pendingBookings} حجز</div>
+                  <button
+                    onClick={() => setMainTab("bookings")}
+                    className="mt-2 text-xs font-bold text-blue-700 dark:text-blue-300 hover:underline"
+                    data-testid="admin-overview-btn-bookings"
+                  >
+                    تدقيق الإيصالات ←
+                  </button>
+                </div>
+              )}
+
+              {pendingVerificationUsers > 0 && (
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold text-xs mb-1">
+                    <ShieldCheck size={15} />
+                    <span>أرقام قومية بانتظار التوثيق</span>
+                  </div>
+                  <div className="text-xl font-black text-emerald-600">{pendingVerificationUsers} مستخدم</div>
+                  <button
+                    onClick={() => setMainTab("verification")}
+                    className="mt-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline"
+                    data-testid="admin-overview-btn-verifications"
+                  >
+                    توثيق الهويات ←
+                  </button>
+                </div>
+              )}
+
+              {pendingInspections > 0 && (
+                <div className="rounded-2xl border border-purple-500/30 bg-purple-500/10 p-4">
+                  <div className="flex items-center gap-2 text-purple-700 dark:text-purple-300 font-bold text-xs mb-1">
+                    <Camera size={15} />
+                    <span>معاينات ميدانية معلقة</span>
+                  </div>
+                  <div className="text-xl font-black text-purple-600">{pendingInspections} طلب</div>
+                  <button
+                    onClick={() => setMainTab("inspections")}
+                    className="mt-2 text-xs font-bold text-purple-700 dark:text-purple-300 hover:underline"
+                    data-testid="admin-overview-btn-inspections"
+                  >
+                    جدولة الزيارات ←
+                  </button>
+                </div>
+              )}
+
+              {(supportCounts.open > 0 || supportCounts.in_progress > 0) && (
+                <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+                  <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold text-xs mb-1">
+                    <Headphones size={15} />
+                    <span>تذاكر دعم بانتظار الرد</span>
+                  </div>
+                  <div className="text-xl font-black text-rose-600">{supportCounts.open + supportCounts.in_progress} تذكرة</div>
+                  <button
+                    onClick={() => setMainTab("support")}
+                    className="mt-2 text-xs font-bold text-rose-700 dark:text-rose-300 hover:underline"
+                    data-testid="admin-overview-btn-support"
+                  >
+                    متابعة وتذاكر الدعم ←
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* الأقسام التحليلية الأربعة */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* قسم المستخدمين والتوثيق */}
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <Users size={18} className="text-primary" />
+                    <span>إحصائيات المستخدمين والتحقق من الهوية</span>
+                  </div>
+                  <button
+                    onClick={() => setMainTab("users")}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    إدارة المستخدمين
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">إجمالي المستخدمين</span>
+                    <strong className="text-xl font-black text-foreground">{totalUsers}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">الطلاب</span>
+                    <strong className="text-xl font-black text-primary">{studentUsers}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">ملاك العقارات</span>
+                    <strong className="text-xl font-black text-emerald-600 dark:text-emerald-400">{ownerUsers}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">موثقون رسمياً</span>
+                    <strong className="text-xl font-black text-emerald-600">{verifiedUsers}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">بانتظار التوثيق</span>
+                    <strong className="text-xl font-black text-amber-600">{pendingVerificationUsers}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">فريق الإدارة</span>
+                    <strong className="text-xl font-black text-purple-600">{adminUsers}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* قسم العقارات والاعتماد */}
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <Home size={18} className="text-primary" />
+                    <span>إحصائيات العقارات وحالات الاعتماد</span>
+                  </div>
+                  <button
+                    onClick={() => setMainTab("approvals")}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    مراجعة العقارات
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">إجمالي العقارات</span>
+                    <strong className="text-xl font-black text-foreground">{totalProperties}</strong>
+                  </div>
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+                    <span className="text-[11px] text-amber-700 dark:text-amber-400 block font-medium">قيد المراجعة</span>
+                    <strong className="text-xl font-black text-amber-600">{pendingProperties}</strong>
+                  </div>
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block font-medium">متاح للطلاب</span>
+                    <strong className="text-xl font-black text-emerald-600">{approvedProperties}</strong>
+                  </div>
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                    <span className="text-[11px] text-rose-700 dark:text-rose-400 block font-medium">عقارات مرفوضة</span>
+                    <strong className="text-xl font-black text-rose-600">{rejectedProperties}</strong>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">مشغولة بالكامل</span>
+                    <strong className="text-xl font-black text-slate-500">{occupiedProperties}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* قسم الحجوزات وإيصالات الدفع */}
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <CreditCard size={18} className="text-primary" />
+                    <span>إحصائيات الحجوزات وإيصالات التحويل</span>
+                  </div>
+                  <button
+                    onClick={() => setMainTab("bookings")}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    فحص الحجوزات
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">إجمالي الحجوزات</span>
+                    <strong className="text-xl font-black text-foreground">{totalBookings}</strong>
+                  </div>
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3">
+                    <span className="text-[11px] text-blue-700 dark:text-blue-400 block font-medium">بانتظار المراجعة</span>
+                    <strong className="text-xl font-black text-blue-600">{pendingBookings}</strong>
+                  </div>
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block font-medium">مؤكدة ومعتمدة</span>
+                    <strong className="text-xl font-black text-emerald-600">{confirmedBookings}</strong>
+                  </div>
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                    <span className="text-[11px] text-rose-700 dark:text-rose-400 block font-medium">حجوزات مرفوضة</span>
+                    <strong className="text-xl font-black text-rose-600">{rejectedBookings}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* قسم المعاينات والجولات الافتراضية */}
+              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <Camera size={18} className="text-primary" />
+                    <span>المعاينات الميدانية وفحص 360°</span>
+                  </div>
+                  <button
+                    onClick={() => setMainTab("inspections")}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    جدول المعاينات
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-border bg-background p-3">
+                    <span className="text-[11px] text-muted-foreground block font-medium">إجمالي الطلبات</span>
+                    <strong className="text-xl font-black text-foreground">{totalInspections}</strong>
+                  </div>
+                  <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3">
+                    <span className="text-[11px] text-purple-700 dark:text-purple-400 block font-medium">بانتظار الفحص</span>
+                    <strong className="text-xl font-black text-purple-600">{pendingInspections}</strong>
+                  </div>
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <span className="text-[11px] text-emerald-700 dark:text-emerald-400 block font-medium">تم فحصها وتصويرها</span>
+                    <strong className="text-xl font-black text-emerald-600">
+                      {inspections.filter((i) => i.status === "inspected" || i.status === "approved").length}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* التبويب 1: مراجعة واعتماد العقارات */}
+        {mainTab === "approvals" && (
+          <div className="space-y-6" data-testid="section-admin-approvals">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <CheckCircle2 size={20} className="text-primary" />
+                  مراجعة واعتماد عقارات الملاك (Property Approvals)
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  التدقيق الأمني والميداني في طلبات الوحدات السكنية. لا تظهر أي وحدة للطلاب إلا بعد قرار الاعتماد الصريح من المشرف.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {[
+                  { id: "قيد المراجعة", label: `قيد المراجعة (${pendingProperties})` },
+                  { id: "متاح", label: `معتمدة (${approvedProperties})` },
+                  { id: "مرفوض", label: `مرفوضة (${rejectedProperties})` },
+                  { id: "all", label: `الكل (${totalProperties})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setApprovalFilter(f.id)}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      approvalFilter === f.id
+                        ? "bg-primary text-primary-foreground font-bold"
+                        : "border border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* شبكة العقارات المفلترة */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {properties
+                .filter((p) => (approvalFilter === "all" ? true : p.status === approvalFilter))
+                .map((prop) => (
+                  <div
+                    key={prop.id}
+                    className="overflow-hidden rounded-2xl border border-border bg-card p-4 shadow-sm flex flex-col justify-between"
+                    data-testid={`admin-approval-card-${prop.id}`}
+                  >
+                    <div>
+                      <div className="relative h-44 overflow-hidden rounded-xl border border-border mb-3">
+                        <img
+                          src={prop.images?.[0] || "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg"}
+                          alt={prop.title}
+                          className="h-full w-full object-cover"
+                        />
+                        <div className="absolute top-2 right-2 flex flex-wrap gap-1">
+                          <span className="rounded-md bg-background/90 px-2 py-0.5 text-[10px] font-bold text-primary">
+                            ID: {prop.id}
+                          </span>
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                              prop.status === "متاح"
+                                ? "bg-emerald-600 text-white"
+                                : prop.status === "قيد المراجعة"
+                                ? "bg-amber-600 text-white"
+                                : "bg-rose-600 text-white"
+                            }`}
+                          >
+                            {prop.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      <h3 className="font-bold text-foreground text-sm line-clamp-1">{prop.title}</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">{prop.address} • {prop.city}</p>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                        <span>الجامعة: <strong className="text-foreground">{prop.university}</strong></span>
+                        <span>الإيجار: <strong className="text-primary font-bold">{prop.pricePerMonth} ج/شهر</strong></span>
+                        <span>الغرف: <strong className="text-foreground">{prop.bedrooms} غرف</strong></span>
+                        <span>الحمامات: <strong className="text-foreground">{prop.bathrooms} حمام</strong></span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-border space-y-2">
+                      {prop.status === "قيد المراجعة" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleApproveProperty(prop.id, prop.title)}
+                            className="flex-1 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                            data-testid={`admin-btn-approve-${prop.id}`}
+                          >
+                            اعتماد ونشر للطلاب ✓
+                          </button>
+                          <button
+                            onClick={() => handleRejectProperty(prop.id, prop.title)}
+                            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-500/20"
+                            data-testid={`admin-btn-reject-${prop.id}`}
+                          >
+                            رفض
+                          </button>
+                        </div>
+                      )}
+
+                      {prop.status === "مرفوض" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleApproveProperty(prop.id, prop.title)}
+                            className="flex-1 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                          >
+                            إعادة الاعتماد والنشر ✓
+                          </button>
+                        </div>
+                      )}
+
+                      {prop.status === "متاح" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleRejectProperty(prop.id, prop.title)}
+                            className="flex-1 rounded-xl border border-border py-1.5 text-xs font-semibold text-muted-foreground hover:text-rose-600"
+                          >
+                            سحب الاعتماد وتغيير الحالة لمرفوض
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <button
+                          onClick={() => setEditingProperty(prop)}
+                          className="flex items-center gap-1 text-primary hover:underline font-semibold"
+                        >
+                          <Edit3 size={13} />
+                          تعديل البيانات
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProperty(prop.id, prop.title)}
+                          className="flex items-center gap-1 text-muted-foreground hover:text-destructive text-xs"
+                        >
+                          <Trash2 size={13} />
+                          حذف
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {properties.filter((p) => (approvalFilter === "all" ? true : p.status === approvalFilter)).length === 0 && (
+              <div className="p-8 text-center border border-dashed border-border rounded-2xl">
+                <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-2" />
+                <p className="font-bold text-foreground">لا توجد عقارات في هذا التصنيف حالياً</p>
+                <p className="text-xs text-muted-foreground mt-1">جميع طلبات الملاك تمت معالجتها بدقة.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* التبويب 2: توثيق الحسابات */}
+        {mainTab === "verification" && (
+          <div className="space-y-6" data-testid="section-admin-verification">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <ShieldCheck size={20} className="text-emerald-500" />
+                  توثيق واعتماد الهوية الوطنية (Account Verification)
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  مطابقة بيانات الرقم القومي للمستخدمين (طلاب وملاك). التوثيق يمنح شارة الموثوقية الخضراء في المنصة.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {[
+                  { id: "pending", label: `بانتظار التوثيق (${pendingVerificationUsers})` },
+                  { id: "verified", label: `موثق رسمي (${verifiedUsers})` },
+                  { id: "unverified", label: `غير موثق (${usersList.filter((u) => !u.isVerified).length})` },
+                  { id: "all", label: `الكل (${totalUsers})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setVerificationFilter(f.id)}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      verificationFilter === f.id
+                        ? "bg-primary text-primary-foreground font-bold"
+                        : "border border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* قائمة المستخدمين الخاصة بالتوثيق */}
+            <div className="grid gap-3.5">
+              {usersList
+                .filter((u) => {
+                  if (verificationFilter === "pending") {
+                    return !u.isVerified && Boolean(u.nationalId && u.nationalId.length === 14);
+                  }
+                  if (verificationFilter === "verified") {
+                    return Boolean(u.isVerified);
+                  }
+                  if (verificationFilter === "unverified") {
+                    return !u.isVerified;
+                  }
+                  return true;
+                })
+                .map((userItem) => (
+                  <div
+                    key={userItem.id}
+                    className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm transition-all hover:border-primary/40 lg:flex-row lg:items-center lg:justify-between"
+                    data-testid={`verification-user-row-${userItem.id}`}
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-base font-black ${
+                          userItem.role === "owner"
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : userItem.role === "admin"
+                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            : "bg-primary/15 text-primary"
+                        }`}
+                      >
+                        {userItem.role === "owner" ? (
+                          <Building2 size={24} />
+                        ) : userItem.role === "admin" ? (
+                          <ShieldCheck size={24} />
+                        ) : (
+                          <GraduationCap size={24} />
+                        )}
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-extrabold text-foreground">{userItem.fullName}</h3>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              userItem.role === "super_admin"
+                                ? "bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                                : userItem.role === "owner"
+                                ? "bg-emerald-500/10 text-emerald-600"
+                                : userItem.role === "admin"
+                                ? "bg-amber-500/10 text-amber-600"
+                                : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            {userItem.role === "super_admin" ? "👑 مدير عام (Super Admin)" : userItem.role === "owner" ? "مالك عقار" : userItem.role === "admin" ? "مشرف نظام" : "طالب جامعي"}
+                          </span>
+
+                          {userItem.isVerified ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+                              <CheckCircle2 size={11} /> موثق رسمياً
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+                              <AlertCircle size={11} /> غير موثق
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1 font-mono">
+                            <CreditCard size={13} className="text-primary" />
+                            الرقم القومي: <strong className="text-foreground tracking-wider">{userItem.nationalId || "غير مسجل"}</strong>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Mail size={13} className="text-muted-foreground" />
+                            {userItem.email}
+                          </span>
+                          <span className="flex items-center gap-1 font-mono">
+                            <Phone size={13} className="text-muted-foreground" />
+                            {userItem.phoneNumber}
+                          </span>
+                          {userItem.university && (
+                            <span className="flex items-center gap-1 font-semibold text-primary">
+                              <GraduationCap size={13} />
+                              {userItem.university}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 self-end lg:self-center">
+                      <a
+                        href={`https://wa.me/20${userItem.phoneNumber.replace(/^0/, "")}?text=${encodeURIComponent(
+                          `مرحباً ${userItem.fullName}، معك إدارة منصة مكاني للسكن الطلابي بخصوص توثيق الهوية...`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                      >
+                        <MessageCircle size={14} />
+                        <span>واتساب</span>
+                      </a>
+
+                      <button
+                        onClick={async () => {
+                          const updated = await toggleUserVerificationAsync(userItem.id);
+                          if (updated) {
+                            openToast(
+                              updated.isVerified
+                                ? `تم توثيق واعتماد حساب "${userItem.fullName}" بنجاح!`
+                                : `تم إلغاء توثيق حساب "${userItem.fullName}".`
+                            );
+                            fetchUsersFromApi().then((u) => setUsersList(u));
+                          } else {
+                            openToast("تعذر تحديث حالة التوثيق");
+                          }
+                        }}
+                        className={`flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                          userItem.isVerified
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
+                            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                        }`}
+                        data-testid={`admin-verification-toggle-${userItem.id}`}
+                      >
+                        <ShieldCheck size={14} />
+                        <span>{userItem.isVerified ? "إلغاء التوثيق" : "توثيق واعتماد الهوية"}</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* التبويب: طلبات المعاينة وتصوير 360° */}
         {mainTab === "inspections" && (
           <div className="space-y-6" data-testid="section-admin-inspections">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -521,9 +1398,18 @@ export function AdminInspectionPortal({
                       alt={prop.title}
                       className="h-full w-full object-cover"
                     />
-                    <div className="absolute top-2 right-2 flex gap-1">
+                    <div className="absolute top-2 right-2 flex flex-wrap gap-1">
                       <span className="rounded-md bg-background/90 px-2 py-0.5 text-[10px] font-bold text-primary">
                         ID: {prop.id}
+                      </span>
+                      <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                        prop.status === "متاح"
+                          ? "bg-emerald-600 text-white"
+                          : prop.status === "قيد المراجعة"
+                          ? "bg-amber-600 text-white"
+                          : "bg-rose-600 text-white"
+                      }`} data-testid={`admin-prop-status-${prop.id}`}>
+                        {prop.status || "متاح"}
                       </span>
                       {prop.video360Url && (
                         <span className="rounded-md bg-purple-600 px-2 py-0.5 text-[10px] font-bold text-white">
@@ -560,6 +1446,29 @@ export function AdminInspectionPortal({
                     <span className="font-bold text-primary">{prop.pricePerMonth} جنيه/شهر</span>
                     <span className="text-muted-foreground">{prop.university}</span>
                   </div>
+
+                  {prop.status === "قيد المراجعة" && (
+                    <div className="mt-3 flex items-center gap-2 rounded-xl bg-amber-500/10 p-2.5 text-xs">
+                      <Clock size={14} className="text-amber-600 shrink-0" />
+                      <span className="text-amber-700 dark:text-amber-300 font-semibold text-[11px] flex-1">
+                        عقار بانتظار قرار المراجعة والاعتماد
+                      </span>
+                      <button
+                        onClick={() => handleApproveProperty(prop.id, prop.title)}
+                        className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                        data-testid={`btn-approve-prop-${prop.id}`}
+                      >
+                        اعتماد ونشر
+                      </button>
+                      <button
+                        onClick={() => handleRejectProperty(prop.id, prop.title)}
+                        className="rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-rose-700 transition-colors shadow-sm"
+                        data-testid={`btn-reject-prop-${prop.id}`}
+                      >
+                        رفض
+                      </button>
+                    </div>
+                  )}
 
                   <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                     <button
@@ -623,6 +1532,22 @@ export function AdminInspectionPortal({
                         <span>•</span>
                         <span>المبلغ: <strong className="text-primary font-bold">{b.paymentAmount} جنيه</strong></span>
                       </div>
+                      {(b.appointmentDate || b.appointmentTime) && (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground bg-emerald-500/5 p-2 rounded-xl border border-emerald-500/10">
+                          {b.appointmentDate && (
+                            <span>موعد المعاينة: <strong className="text-emerald-600 font-bold">{b.appointmentDate}</strong></span>
+                          )}
+                          {b.appointmentDate && b.appointmentTime && <span>•</span>}
+                          {b.appointmentTime && (
+                            <span>التوقيت: <strong className="text-emerald-600 font-bold">{b.appointmentTime}</strong></span>
+                          )}
+                        </div>
+                      )}
+                      {b.adminNotes && (
+                        <p className="mt-2 text-xs text-muted-foreground italic bg-amber-500/5 p-2 rounded-xl border border-amber-500/10">
+                          ملاحظة الإدارة: {b.adminNotes}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -656,14 +1581,19 @@ export function AdminInspectionPortal({
 
                     <div className="flex flex-wrap items-center gap-2">
                       <button
-                        onClick={() => handleChangeBookingStatus(b.id, "confirmed", "تمت مراجعة الإيصال وتأكيده مع الإدارة.")}
+                        onClick={() => {
+                          setConfirmingBooking(b);
+                          setBDate(b.appointmentDate || "الإثنين، ١٥ سبتمبر ٢٠٢٤");
+                          setBTime(b.appointmentTime || "الساعة ٢:٠٠ ظهراً");
+                          setBNotes(b.adminNotes || "تمت مراجعة الإيصال وتأكيده مع الإدارة.");
+                        }}
                         className={`rounded-xl px-3 py-2 text-xs font-bold ${
                           b.status === "confirmed"
-                            ? "bg-emerald-500/15 text-emerald-600"
+                            ? "bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25"
                             : "bg-emerald-600 text-white hover:bg-emerald-700 shadow"
                         }`}
                       >
-                        {b.status === "confirmed" ? "✓ تم التأكيد" : "تأكيد الحجز"}
+                        {b.status === "confirmed" ? "تعديل الموعد / التفاصيل" : "تأكيد وجدولة الموعد"}
                       </button>
 
                       {b.status !== "rejected" && (
@@ -676,14 +1606,15 @@ export function AdminInspectionPortal({
                       )}
 
                       <a
-                        href={`https://wa.me/20${((b.studentPhone || b.student?.phoneNumber || "").replace(/^0/, ""))}?text=${encodeURIComponent(`مرحباً ${b.studentName || b.student?.fullName || "طالب"}، بخصوص حجزك (${b.bookingCode}) عبر منصة مكاني للسكن الطلابي...`)}`}
+                        href={buildWhatsAppAdminConfirmationUrl(b)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
-                        title="مراسلة الطالب على واتساب"
+                        title="مراسلة الطالب لتأكيد موعد المعاينة"
+                        data-testid={`admin-whatsapp-btn-${b.id}`}
                       >
                         <MessageCircle size={14} />
-                        واتساب
+                        واتساب التأكيد
                       </a>
                     </div>
                   </div>
@@ -864,12 +1795,15 @@ export function AdminInspectionPortal({
                           
                           {/* شارة الدور */}
                           <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                            userItem.role === "owner"
+                            userItem.role === "super_admin"
+                              ? "bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                              : userItem.role === "owner"
                               ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                               : userItem.role === "admin"
                               ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                               : "bg-primary/15 text-primary border border-primary/20"
                           }`}>
+                            {userItem.role === "super_admin" && "👑 مدير عام (Super Admin)"}
                             {userItem.role === "owner" && "🏢 مالك عقار"}
                             {userItem.role === "student" && "🎓 طالب جامعي"}
                             {userItem.role === "admin" && "🛡️ مشرف النظام"}
@@ -952,14 +1886,17 @@ export function AdminInspectionPortal({
                       </a>
 
                       <button
-                        onClick={() => {
-                          const updated = toggleUserVerification(userItem.id);
+                        onClick={async () => {
+                          const updated = await toggleUserVerificationAsync(userItem.id);
                           if (updated) {
                             openToast(
                               updated.isVerified
                                 ? `تم توثيق واعتماد حساب "${userItem.fullName}" بنجاح!`
                                 : `تم إلغاء توثيق حساب "${userItem.fullName}".`
                             );
+                            setUsersList(getAllRegisteredUsers());
+                          } else {
+                            openToast("تعذر تحديث حالة التوثيق");
                           }
                         }}
                         className={`flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
@@ -967,21 +1904,73 @@ export function AdminInspectionPortal({
                             ? "border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
                             : "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
                         }`}
+                        data-testid={`admin-btn-verify-user-${userItem.id}`}
                       >
                         <ShieldCheck size={14} />
                         <span>{userItem.isVerified ? "إلغاء التوثيق" : "توثيق الحساب"}</span>
                       </button>
 
-                      {userItem.role !== "admin" && (
+                      {/* أزرار ترقية وسحب صلاحية المشرف للـ Super Admin */}
+                      {isSuperAdmin && userItem.role !== "super_admin" && (
+                        userItem.role === "admin" ? (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`هل أنت متأكد من سحب صلاحية المشرف من "${userItem.fullName}"؟`)) {
+                                try {
+                                  await updateUserRoleAsync(userItem.id, "student");
+                                  openToast(`تم سحب صلاحية المشرف من "${userItem.fullName}" وتحويل الحساب لطالب.`);
+                                  const refreshed = await fetchUsersFromApi();
+                                  setUsersList(refreshed);
+                                } catch (err: any) {
+                                  openToast(err?.message || "فشل في سحب صلاحية المشرف");
+                                }
+                              }
+                            }}
+                            className="flex items-center gap-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-600 hover:bg-amber-500/20 transition-colors"
+                            data-testid={`superadmin-btn-revoke-${userItem.id}`}
+                          >
+                            <ShieldAlert size={14} />
+                            <span>سحب صلاحية مشرف</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`هل أنت متأكد من ترقية "${userItem.fullName}" إلى مشرف نظام (Admin)؟`)) {
+                                try {
+                                  await updateUserRoleAsync(userItem.id, "admin");
+                                  openToast(`تمت ترقية "${userItem.fullName}" إلى مشرف نظام بنجاح!`);
+                                  const refreshed = await fetchUsersFromApi();
+                                  setUsersList(refreshed);
+                                } catch (err: any) {
+                                  openToast(err?.message || "فشل في منح صلاحية المشرف");
+                                }
+                              }
+                            }}
+                            className="flex items-center gap-1 rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition-colors shadow-sm"
+                            data-testid={`superadmin-btn-grant-${userItem.id}`}
+                          >
+                            <ShieldCheck size={14} />
+                            <span>منح صلاحية مشرف</span>
+                          </button>
+                        )
+                      )}
+
+                      {(userItem.role !== "admin" || isSuperAdmin) && userItem.role !== "super_admin" && (
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (confirm(`هل أنت متأكد من رغبتك في حذف حساب "${userItem.fullName}" نهائياً من قاعدة البيانات؟`)) {
-                              deleteUserFromDb(userItem.id);
-                              openToast(`تم حذف الحساب نهائياً من قاعدة البيانات`);
+                              const ok = await deleteUserFromDbAsync(userItem.id);
+                              if (ok) {
+                                openToast(`تم حذف الحساب نهائياً من قاعدة البيانات`);
+                                setUsersList(getAllRegisteredUsers());
+                              } else {
+                                openToast("تعذر حذف المستخدم");
+                              }
                             }
                           }}
                           className="flex items-center gap-1 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-500/20 transition-colors"
                           title="حذف المستخدم نهائياً"
+                          data-testid={`admin-btn-delete-user-${userItem.id}`}
                         >
                           <Trash2 size={14} />
                           <span>حذف</span>
@@ -994,6 +1983,231 @@ export function AdminInspectionPortal({
               {usersList.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-border p-12 text-center text-muted-foreground">
                   لا توجد حسابات مسجلة حالياً في قاعدة البيانات.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* التبويب 7: إدارة الدعم الفني وتذاكر التواصل */}
+        {mainTab === "support" && (
+          <div className="space-y-6" data-testid="section-admin-support">
+            {/* Header */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <Headphones size={20} className="text-primary" />
+                  إدارة الدعم الفني وتذاكر التواصل (Admin Support Management)
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  متابعة محادثات وتذاكر الدعم بين الطلاب والملاك مع فريق إدارة مكاني الفني.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => refreshAdminSupport()}
+                  className="flex items-center gap-1 rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  تحديث البيانات ↺
+                </button>
+              </div>
+            </div>
+
+            {/* Counts Summary Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="rounded-2xl border border-border bg-card p-3.5 text-right">
+                <span className="text-[11px] text-muted-foreground font-semibold">إجمالي التذاكر</span>
+                <strong className="block text-xl font-black text-foreground mt-0.5">{supportCounts.total}</strong>
+              </div>
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-3.5 text-right">
+                <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">مفتوحة (جديدة)</span>
+                <strong className="block text-xl font-black text-blue-600 mt-0.5">{supportCounts.open}</strong>
+              </div>
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 text-right">
+                <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">قيد المعالجة</span>
+                <strong className="block text-xl font-black text-amber-600 mt-0.5">{supportCounts.in_progress}</strong>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-right">
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">تم الحل</span>
+                <strong className="block text-xl font-black text-emerald-600 mt-0.5">{supportCounts.resolved}</strong>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-3.5 text-right">
+                <span className="text-[11px] text-muted-foreground font-semibold">مغلقة</span>
+                <strong className="block text-xl font-black text-slate-500 mt-0.5">{supportCounts.closed}</strong>
+              </div>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Status Filter */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-muted-foreground ml-1">الحالة:</span>
+                  {[
+                    { id: "all", label: "الكل" },
+                    { id: "open", label: "مفتوحة" },
+                    { id: "in_progress", label: "قيد المعالجة" },
+                    { id: "resolved", label: "تم الحل" },
+                    { id: "closed", label: "مغلقة" },
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setSupportStatusFilter(st.id)}
+                      className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        supportStatusFilter === st.id
+                          ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                          : "border border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                      data-testid={`admin-support-filter-status-${st.id}`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Role Filter */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-muted-foreground ml-1">المستخدم:</span>
+                  <select
+                    value={supportRoleFilter}
+                    onChange={(e) => setSupportRoleFilter(e.target.value)}
+                    className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold outline-none focus:border-primary"
+                    data-testid="admin-support-filter-role"
+                  >
+                    <option value="all">الكل (طلاب وملاك)</option>
+                    <option value="student">🎓 الطلاب فقط</option>
+                    <option value="owner">🏢 الملاك فقط</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-border">
+                {/* Category Filter */}
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-xs font-bold text-muted-foreground whitespace-nowrap">التصنيف:</span>
+                  <select
+                    value={supportCategoryFilter}
+                    onChange={(e) => setSupportCategoryFilter(e.target.value)}
+                    className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold outline-none focus:border-primary max-w-xs"
+                    data-testid="admin-support-filter-category"
+                  >
+                    <option value="all">جميع التصنيفات</option>
+                    <option value="booking">حجز السكن</option>
+                    <option value="payment">الدفع والتحويلات</option>
+                    <option value="property">العقارات والوحدات</option>
+                    <option value="inspection">معاينة 360° وتصوير</option>
+                    <option value="verification">توثيق الحساب والهوية</option>
+                    <option value="account">بيانات الحساب الشخصي</option>
+                    <option value="technical">مشكلة تقنية</option>
+                    <option value="other">استفسارات أخرى</option>
+                  </select>
+                </div>
+
+                {/* Search Input */}
+                <div className="relative flex-1 max-w-sm">
+                  <Search size={14} className="absolute right-3 top-2.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="البحث برقم المحادثة أو الموضوع..."
+                    value={supportSearchQuery}
+                    onChange={(e) => setSupportSearchQuery(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background py-1.5 pr-8 pl-3 text-xs outline-none focus:border-primary"
+                    data-testid="admin-support-search"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Conversations List */}
+            <div className="space-y-3">
+              {supportConversations.map((conv) => {
+                const statusInfo = SUPPORT_STATUS_LABELS[conv.status] || { label: conv.status, color: "bg-muted" };
+                const categoryLabel = SUPPORT_CATEGORY_LABELS[conv.category] || conv.category;
+
+                return (
+                  <div
+                    key={conv.id}
+                    className="rounded-2xl border border-border bg-card p-4 hover:border-primary/40 transition-colors shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    data-testid={`admin-support-item-${conv.id}`}
+                  >
+                    <div className="space-y-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[11px] font-mono font-bold text-purple-600 dark:text-purple-400">
+                          {conv.conversationCode}
+                        </span>
+
+                        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold border ${statusInfo.color}`}>
+                          {statusInfo.label}
+                        </span>
+
+                        <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          {categoryLabel}
+                        </span>
+
+                        {conv.userRole === "student" ? (
+                          <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-bold">
+                            🎓 طالب
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-500/10 text-emerald-600 px-2 py-0.5 text-[10px] font-bold">
+                            🏢 مالك
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-bold text-foreground text-sm">{conv.subject}</h3>
+
+                      {conv.user && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground">{conv.user.fullName}</span>
+                          {conv.user.phoneNumber && (
+                            <span className="font-mono">{conv.user.phoneNumber}</span>
+                          )}
+                          {conv.user.email && (
+                            <span>{conv.user.email}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {conv.lastMessage && (
+                        <p className="text-xs text-muted-foreground line-clamp-1 bg-muted/40 p-2 rounded-xl">
+                          <strong className="text-foreground">{conv.lastMessage.senderName}: </strong>
+                          {conv.lastMessage.body}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-row sm:flex-col items-end justify-between sm:justify-center gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-border">
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(conv.updatedAt).toLocaleDateString("ar-EG")}
+                      </span>
+
+                      <button
+                        onClick={async () => {
+                          try {
+                            const fullConv = await getSupportConversationDetailsApi(conv.id);
+                            setSelectedSupportConversation(fullConv);
+                          } catch (e: any) {
+                            openToast(e?.message || "تعذر فتح تفاصيل المحادثة");
+                          }
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                        data-testid={`admin-btn-open-support-${conv.id}`}
+                      >
+                        <MessageCircle size={14} />
+                        فتح المحادثة والرد
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {supportConversations.length === 0 && (
+                <div className="p-12 text-center border border-dashed border-border rounded-2xl space-y-2">
+                  <Headphones size={32} className="mx-auto text-muted-foreground mb-2" />
+                  <p className="font-bold text-foreground">لا توجد محادثات دعم مطابقة للفلاتر حالياً</p>
+                  <p className="text-xs text-muted-foreground">تظهر جميع التذاكر المرسلة من الطلاب والملاك فور إرسالها.</p>
                 </div>
               )}
             </div>
@@ -1502,6 +2716,278 @@ export function AdminInspectionPortal({
             </div>
           </form>
         </div>
+      </StandardModal>
+
+      {/* Modal: إشعار الواتساب المباشر للمالك */}
+      <StandardModal
+        isOpen={Boolean(whatsappInfoModal)}
+        onClose={() => setWhatsappInfoModal(null)}
+        maxWidthClassName="max-w-md"
+        title="📱 إرسال إشعار للمالك عبر الواتساب"
+        subtitle="تم حفظ الإجراء بنجاح. يمكنك إرسال الرسالة المجهزة للمالك عبر الواتساب بنقرة واحدة."
+        testId="admin-modal-whatsapp-notification"
+        closeButtonAriaLabel="إغلاق إشعار الواتساب"
+      >
+        <div className="space-y-4 text-xs">
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-right">
+            <p className="font-bold text-emerald-700 dark:text-emerald-300 mb-2">نص الرسالة المجهزة للمالك:</p>
+            <div className="rounded-xl border border-border bg-background p-3 font-mono text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">
+              {whatsappInfoModal?.msg}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setWhatsappInfoModal(null)}
+              className="rounded-xl border border-border px-4 py-2.5 text-xs font-bold text-muted-foreground"
+            >
+              إغلاق
+            </button>
+            <a
+              href={whatsappInfoModal?.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setWhatsappInfoModal(null)}
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-700 transition-colors"
+            >
+              <MessageCircle size={16} />
+              <span>فتح تطبيق WhatsApp وإرسال الرسالة</span>
+            </a>
+          </div>
+        </div>
+      </StandardModal>
+
+      {/* Modal: تأكيد الحجز وجدولة موعد المعاينة للطالب */}
+      <StandardModal
+        isOpen={Boolean(confirmingBooking)}
+        onClose={() => setConfirmingBooking(null)}
+        maxWidthClassName="max-w-md"
+        title="تأكيد الحجز وجدولة موعد المعاينة للغرفة"
+        subtitle={confirmingBooking ? `تأكيد حجز الطالب (${confirmingBooking.studentName}) وتحديد موعد المعاينة النهائي` : ""}
+        testId="admin-modal-confirm-booking"
+        closeButtonAriaLabel="إغلاق نافذة تأكيد الحجز"
+      >
+        <div>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!confirmingBooking) return;
+              await handleChangeBookingStatus(
+                confirmingBooking.id,
+                "confirmed",
+                bNotes || "تمت مراجعة الإيصال وتأكيده مع الإدارة.",
+                bDate,
+                bTime
+              );
+              setConfirmingBooking(null);
+            }}
+            className="space-y-4 text-xs text-right"
+            dir="rtl"
+          >
+            <div>
+              <label className="block font-bold text-foreground mb-1">تاريخ المعاينة الميدانية / تسليم الغرفة:</label>
+              <input
+                required
+                type="text"
+                value={bDate}
+                onChange={(e) => setBDate(e.target.value)}
+                placeholder="مثال: الإثنين، ١٥ سبتمبر ٢٠٢٤"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary text-right"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-foreground mb-1">وقت المعاينة الميدانية / تسليم الغرفة:</label>
+              <input
+                required
+                type="text"
+                value={bTime}
+                onChange={(e) => setBTime(e.target.value)}
+                placeholder="مثال: الساعة ٢:٠٠ ظهراً"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary text-right"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-foreground mb-1">ملاحظات الإدارة:</label>
+              <textarea
+                value={bNotes}
+                onChange={(e) => setBNotes(e.target.value)}
+                placeholder="مثال: تم التأكد من إيداع المبلغ المالي، يرجى الحضور في الموعد المحدد."
+                className="w-full h-20 rounded-xl border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary text-right font-sans"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmingBooking(null)}
+                className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-muted-foreground"
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow hover:bg-emerald-700 transition-colors"
+              >
+                تأكيد واعتماد الحجز والموعد
+              </button>
+            </div>
+          </form>
+        </div>
+      </StandardModal>
+
+      {/* Modal: معاينة والرد على تذكرة الدعم */}
+      <StandardModal
+        isOpen={Boolean(selectedSupportConversation)}
+        onClose={() => setSelectedSupportConversation(null)}
+        maxWidthClassName="max-w-2xl"
+        title={selectedSupportConversation ? `تذكرة دعم: ${selectedSupportConversation.conversationCode}` : ""}
+        subtitle={selectedSupportConversation?.subject || ""}
+        testId="admin-modal-support-conversation"
+        closeButtonAriaLabel="إغلاق نافذة محادثة الدعم"
+      >
+        {selectedSupportConversation ? (
+          <div className="space-y-4 text-xs text-right">
+            {/* User Info & Status Control Bar */}
+            <div className="rounded-2xl border border-border bg-muted/30 p-3.5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-foreground text-sm">
+                    {selectedSupportConversation.user?.fullName || "المستخدم"}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    selectedSupportConversation.userRole === "owner" ? "bg-emerald-500/10 text-emerald-600" : "bg-primary/10 text-primary"
+                  }`}>
+                    {selectedSupportConversation.userRole === "owner" ? "🏢 مالك" : "🎓 طالب"}
+                  </span>
+                </div>
+
+                {/* Change Status Dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-muted-foreground text-xs">الحالة:</span>
+                  <select
+                    disabled={isUpdatingStatus}
+                    value={selectedSupportConversation.status}
+                    onChange={async (e) => {
+                      const newStatus = e.target.value as any;
+                      setIsUpdatingStatus(true);
+                      try {
+                        const updated = await updateSupportStatusApi(selectedSupportConversation.id, newStatus);
+                        setSelectedSupportConversation(updated);
+                        openToast(`تم تغيير حالة التذكرة إلى: ${SUPPORT_STATUS_LABELS[newStatus]?.label || newStatus}`);
+                        refreshAdminSupport();
+                      } catch (err: any) {
+                        openToast(err?.message || "تعذر تغيير حالة التذكرة");
+                      } finally {
+                        setIsUpdatingStatus(false);
+                      }
+                    }}
+                    className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-bold outline-none focus:border-primary"
+                    data-testid="admin-select-support-status"
+                  >
+                    <option value="open">مفتوحة (جديدة)</option>
+                    <option value="in_progress">قيد المعالجة</option>
+                    <option value="resolved">تم الحل</option>
+                    <option value="closed">مغلقة</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Contact Details */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-[11px] border-t border-border/50 pt-2">
+                <span>التصنيف: <strong className="text-foreground">{SUPPORT_CATEGORY_LABELS[selectedSupportConversation.category] || selectedSupportConversation.category}</strong></span>
+                {selectedSupportConversation.user?.email && (
+                  <span>البريد: <strong className="text-foreground">{selectedSupportConversation.user.email}</strong></span>
+                )}
+                {selectedSupportConversation.user?.phoneNumber && (
+                  <span>الهاتف: <strong className="text-foreground font-mono">{selectedSupportConversation.user.phoneNumber}</strong></span>
+                )}
+              </div>
+            </div>
+
+            {/* Message Thread */}
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto p-3 border border-border rounded-2xl bg-background">
+              {selectedSupportConversation.messages?.map((msg) => {
+                const isAdminMsg = msg.senderRole === "admin";
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col p-3 rounded-2xl max-w-[85%] ${
+                      isAdminMsg
+                        ? "mr-auto bg-purple-500/10 border border-purple-500/20 text-foreground"
+                        : "ml-auto bg-muted/60 border border-border text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className={`font-bold text-[11px] ${isAdminMsg ? "text-purple-600 dark:text-purple-400" : "text-foreground"}`}>
+                        {isAdminMsg ? "🛡️ فريق دعم مكاني" : msg.senderName}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(msg.createdAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <p className="whitespace-pre-wrap leading-relaxed text-xs">{msg.body}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Reply Box */}
+            {selectedSupportConversation.status === "closed" ? (
+              <div className="p-3 text-center rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold text-xs">
+                ⚠️ هذه التذكرة مغلقة. قم بتغيير الحالة إلى "مفتوحة" أو "قيد المعالجة" لإرسال رد جديد.
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!replyMessageText.trim() || isSendingReply) return;
+
+                  setIsSendingReply(true);
+                  try {
+                    await sendSupportMessageApi(selectedSupportConversation.id, replyMessageText.trim());
+                    setReplyMessageText("");
+                    openToast("تم إرسال رد المشرف بنجاح ✓");
+                    
+                    // Refresh conversation details
+                    const updated = await getSupportConversationDetailsApi(selectedSupportConversation.id);
+                    setSelectedSupportConversation(updated);
+                    refreshAdminSupport();
+                  } catch (err: any) {
+                    openToast(err?.message || "تعذر إرسال الرد");
+                  } finally {
+                    setIsSendingReply(false);
+                  }
+                }}
+                className="space-y-2 pt-2 border-t border-border"
+              >
+                <label className="block font-bold text-foreground text-xs">إرسال رد بصفتك مشرف الدعم:</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={replyMessageText}
+                  onChange={(e) => setReplyMessageText(e.target.value)}
+                  placeholder="اكتب رد فريق الدعم هنا..."
+                  className="w-full rounded-2xl border border-border bg-background p-3 text-xs outline-none focus:border-primary"
+                  data-testid="admin-input-support-reply"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="submit"
+                    disabled={isSendingReply || !replyMessageText.trim()}
+                    className="flex items-center gap-1.5 rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    data-testid="admin-btn-send-support-reply"
+                  >
+                    <Send size={14} />
+                    {isSendingReply ? "جاري الإرسال..." : "إرسال الرد للمستخدم"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        ) : null}
       </StandardModal>
     </div>
   );

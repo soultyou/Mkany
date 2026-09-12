@@ -31,7 +31,8 @@ import {
   Loader2,
   RefreshCw,
   MapPin,
-  Home
+  Home,
+  LifeBuoy
 } from "lucide-react";
 import { useAuth, SignInButton, SignUpButton } from "@/components/auth/clerk-auth";
 import { 
@@ -52,6 +53,7 @@ import {
 import { getOwnerBookingsApi, StudentBooking } from "@/lib/bookings-store";
 import { InspectionRequestModal } from "./InspectionRequestModal";
 import { OwnerApartmentModal } from "./OwnerApartmentModal";
+import { SupportCenter } from "@/components/support/SupportCenter";
 
 interface OwnerDashboardProps {
   openToast: (msg: string) => void;
@@ -66,7 +68,7 @@ export function OwnerDashboard({
 }: OwnerDashboardProps) {
   const { isSignedIn, user, openSignIn } = useAuth();
   
-  const [activeTab, setActiveTab] = useState<"units" | "inspections" | "bookings">("units");
+  const [activeTab, setActiveTab] = useState<"units" | "inspections" | "bookings" | "support">("units");
   const [isAddApartmentModalOpen, setIsAddApartmentModalOpen] = useState(false);
   const [isAddInspectionModalOpen, setIsAddInspectionModalOpen] = useState(false);
   const [editingApartment, setEditingApartment] = useState<PlatformProperty | null>(null);
@@ -212,6 +214,12 @@ export function OwnerDashboard({
 
   // تبديل حالة التوفر (متاح / مشغول)
   const handleToggleStatus = async (unit: PlatformProperty) => {
+    // Strict separation: Owner cannot self-approve a pending or rejected unit
+    if (unit.status === "قيد المراجعة" || unit.status === "مرفوض") {
+      openToast("الوحدة قيد مراجعة ومعاينة الإدارة - اعتماد ونشر العقار يتم حصراً بواسطة الإدارة");
+      return;
+    }
+
     const newStatus = unit.status === "متاح" ? "مشغول" : "متاح";
     try {
       setTogglingId(unit.id);
@@ -320,10 +328,26 @@ export function OwnerDashboard({
           <h1 className="text-3xl font-extrabold sm:text-4xl text-foreground">
             مرحباً، {user?.fullName || "مالك العقار"}
           </h1>
-          <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
-            <ShieldCheck size={16} className="text-primary" />
-            مالك عقار معتمد وموثّق · {user?.university || "عقارات كفر الشيخ والمنصورة وطنطا"}
-          </p>
+          {(() => {
+            const isVerified = Boolean(user?.isVerified);
+            const hasNationalId = Boolean(user?.nationalId && user.nationalId.length === 14 && user.nationalId !== "00000000000000");
+            const verificationLabel = isVerified ? "حساب موثق ✓" : hasNationalId ? "حساب قيد التحقق" : "حساب غير موثق";
+            const verificationBadgeClass = isVerified
+              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+              : hasNationalId
+              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+              : "bg-muted text-muted-foreground border-border";
+            return (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold ${verificationBadgeClass}`} data-testid="owner-account-verification-status">
+                  <ShieldCheck size={13} />
+                  {verificationLabel}
+                </span>
+                <span className="text-xs text-muted-foreground">·</span>
+                <span className="text-xs text-muted-foreground">{user?.university || "عقارات كفر الشيخ والمنصورة وطنطا"}</span>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -351,14 +375,14 @@ export function OwnerDashboard({
       </div>
 
       {/* شريط الإحصائيات الرئيسي */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
           <span className="rounded-xl bg-primary/10 p-3 text-primary">
             <Building2 size={22} />
           </span>
           <div>
             <strong className="block text-2xl font-black text-foreground">{combinedOwnerUnits.length}</strong>
-            <span className="text-xs font-semibold text-muted-foreground">وحدات سكنية مسجلة</span>
+            <span className="text-xs font-semibold text-muted-foreground">إجمالي العقارات</span>
           </div>
         </div>
 
@@ -367,32 +391,44 @@ export function OwnerDashboard({
             <Clock3 size={22} />
           </span>
           <div>
-            <strong className="block text-2xl font-black text-foreground">{ownerInspections.length}</strong>
-            <span className="text-xs font-semibold text-muted-foreground">طلبات معاينة 360°</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
-          <span className="rounded-xl bg-sky-500/10 p-3 text-sky-500">
-            <Eye size={22} />
-          </span>
-          <div>
             <strong className="block text-2xl font-black text-foreground">
-              {combinedOwnerUnits.filter((u) => u.status === "متاح").length}
+              {combinedOwnerUnits.filter((u) => u.status === "قيد المراجعة").length + ownerInspections.filter((i) => i.status === "pending").length}
             </strong>
-            <span className="text-xs font-semibold text-muted-foreground">وحدات متاحة للحجز الفوري</span>
+            <span className="text-xs font-semibold text-muted-foreground">عقارات قيد مراجعة الإدارة</span>
           </div>
         </div>
 
         <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
           <span className="rounded-xl bg-emerald-500/10 p-3 text-emerald-500">
-            <CircleDollarSign size={22} />
+            <CheckCircle2 size={22} />
           </span>
           <div>
             <strong className="block text-2xl font-black text-foreground">
-              {combinedOwnerUnits.reduce((acc, curr) => acc + (curr.pricePerMonth || 0), 0).toLocaleString()} <small className="text-xs font-normal">ج.م</small>
+              {combinedOwnerUnits.filter((u) => u.status === "متاح").length}
             </strong>
-            <span className="text-xs font-semibold text-muted-foreground">إجمالي الإيجارات الشهرية</span>
+            <span className="text-xs font-semibold text-muted-foreground">عقارات معتمدة ومتاحة</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+          <span className="rounded-xl bg-sky-500/10 p-3 text-sky-500">
+            <Home size={22} />
+          </span>
+          <div>
+            <strong className="block text-2xl font-black text-foreground">
+              {combinedOwnerUnits.filter((u) => u.status === "مشغول").length}
+            </strong>
+            <span className="text-xs font-semibold text-muted-foreground">عقارات مؤجرة (مشغولة)</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+          <span className="rounded-xl bg-indigo-500/10 p-3 text-indigo-500">
+            <FileText size={22} />
+          </span>
+          <div>
+            <strong className="block text-2xl font-black text-foreground">{ownerBookings.length}</strong>
+            <span className="text-xs font-semibold text-muted-foreground">طلبات حجز الوحدات</span>
           </div>
         </div>
       </div>
@@ -436,6 +472,19 @@ export function OwnerDashboard({
         >
           <FileText size={18} />
           حجوزات وحداتك ({ownerBookings.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab("support")}
+          className={`flex-1 rounded-xl py-3 transition-all flex items-center justify-center gap-2 ${
+            activeTab === "support"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="tab-owner-support"
+        >
+          <LifeBuoy size={18} />
+          الدعم والمساعدة
         </button>
       </div>
 
@@ -550,20 +599,30 @@ export function OwnerDashboard({
                         <td className="px-5 py-4">
                           <button
                             onClick={() => handleToggleStatus(u)}
-                            disabled={togglingId === u.id}
+                            disabled={togglingId === u.id || u.status === "قيد المراجعة" || u.status === "مرفوض"}
                             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all ${
                               u.status === "متاح"
                                 ? "bg-emerald-500/15 text-emerald-600 hover:bg-emerald-500/25"
                                 : u.status === "مشغول"
                                 ? "bg-amber-500/15 text-amber-600 hover:bg-amber-500/25"
-                                : "bg-muted text-muted-foreground"
+                                : u.status === "قيد المراجعة"
+                                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 cursor-not-allowed"
+                                : "bg-rose-500/10 text-rose-600 border border-rose-500/30 cursor-not-allowed"
                             }`}
-                            title="اضغط لتغيير حالة التوفر"
+                            title={
+                              u.status === "قيد المراجعة"
+                                ? "العقار قيد مراجعة الإدارة ولا يمكن نشره كـ متاح إلا بعد اعتماد المشرفين"
+                                : u.status === "مرفوض"
+                                ? "تم رفض العقار من الإدارة"
+                                : "اضغط لتغيير حالة التوفر (متاح / مشغول)"
+                            }
                           >
                             {togglingId === u.id ? (
                               <Loader2 size={12} className="animate-spin" />
                             ) : u.status === "متاح" ? (
                               <CheckCircle2 size={12} />
+                            ) : u.status === "قيد المراجعة" ? (
+                              <Clock size={12} />
                             ) : (
                               <Clock size={12} />
                             )}
@@ -887,6 +946,13 @@ export function OwnerDashboard({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* محتوى تبويب الدعم والمساعدة للمالك */}
+      {activeTab === "support" && (
+        <div className="mt-6" data-testid="section-owner-support">
+          <SupportCenter role="owner" openToast={openToast} />
         </div>
       )}
 

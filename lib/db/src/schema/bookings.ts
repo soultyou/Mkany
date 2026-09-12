@@ -18,6 +18,8 @@ export const bookings = pgTable("bookings", {
   referenceNumber: varchar("reference_number", { length: 100 }),
   status: varchar("status", { length: 50 }).default("pending_review").notNull(), // pending_review | confirmed | rejected
   adminNotes: text("admin_notes"),
+  appointmentDate: varchar("appointment_date", { length: 100 }),
+  appointmentTime: varchar("appointment_time", { length: 100 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => {

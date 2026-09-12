@@ -1,8 +1,10 @@
 import { Router } from "express";
-import { requireAuth, requireOwner } from "../middlewares/auth";
-import { db, apartments, apartmentPhotos } from "@workspace/db";
+import { requireAuth, requireOwner, requireAdmin } from "../middlewares/auth";
+import { db, apartments, apartmentPhotos, users } from "@workspace/db";
 import { eq, and, or, desc, asc, sql } from "drizzle-orm";
 import { insertApartmentSchema } from "@workspace/db/schema";
+import { getAuth } from "@clerk/express";
+import { ensureSeedApartments } from "../lib/seed-apartments";
 
 const router = Router();
 
@@ -22,16 +24,42 @@ router.get("/", async (req, res) => {
     if (bedrooms) conditions.push(eq(apartments.bedrooms, parseInt(bedrooms as string, 10)));
     if (ownerId) conditions.push(eq(apartments.ownerId, ownerId as string));
 
-    if (status && status !== "all") {
-      conditions.push(eq(apartments.status, status as string));
-    } else if (!status && !ownerId) {
-      // Default to showing available apartments when public browsing
+    // CRITICAL SECURITY RULE: Students and public users MUST ONLY see "متاح" (approved & available) properties.
+    // Pending ("قيد المراجعة") or rejected ("مرفوض") properties are never returned to students/public.
+    const auth = getAuth(req);
+    let isRequesterAdmin = false;
+    let requesterId: string | null = null;
+    let requesterClerkId: string | null = null;
+
+    if (auth?.userId) {
+      const authUser = await db.query.users.findFirst({
+        where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
+      });
+      if (authUser) {
+        if (authUser.role === "admin") isRequesterAdmin = true;
+        requesterId = authUser.id;
+        requesterClerkId = authUser.clerkUserId;
+      }
+    }
+
+    if (isRequesterAdmin) {
+      // Admins can see all or filter by requested status
+      if (status && status !== "all") {
+        conditions.push(eq(apartments.status, status as string));
+      }
+    } else if (ownerId && requesterId && (ownerId === requesterId || (requesterClerkId && ownerId === requesterClerkId))) {
+      // The owner themselves querying their own apartments can see their pending/rejected units
+      if (status && status !== "all") {
+        conditions.push(eq(apartments.status, status as string));
+      }
+    } else {
+      // For general student/public browsing or other owners, strictly restrict to "متاح"
       conditions.push(eq(apartments.status, "متاح"));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const data = await db.query.apartments.findMany({
+    let data = await db.query.apartments.findMany({
       where: whereClause,
       limit: limitNum,
       offset,
@@ -44,12 +72,33 @@ router.get("/", async (req, res) => {
           columns: {
             fullName: true,
             avatarUrl: true,
-            phoneNumber: true,
             isVerified: true,
           },
         },
       },
     });
+
+    if (data.length === 0 && !city && !university && !ownerId) {
+      await ensureSeedApartments();
+      data = await db.query.apartments.findMany({
+        where: whereClause,
+        limit: limitNum,
+        offset,
+        orderBy: [desc(apartments.createdAt)],
+        with: {
+          photos: {
+            orderBy: [asc(apartmentPhotos.displayOrder)],
+          },
+          owner: {
+            columns: {
+              fullName: true,
+              avatarUrl: true,
+              isVerified: true,
+            },
+          },
+        },
+      });
+    }
 
     return res.json(data);
   } catch (error) {
@@ -102,7 +151,7 @@ router.get("/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid apartment ID" });
     }
 
-    const data = await db.query.apartments.findFirst({
+    let data = await db.query.apartments.findFirst({
       where: eq(apartments.id, apartmentId),
       with: {
         photos: {
@@ -112,7 +161,6 @@ router.get("/:id", async (req, res) => {
           columns: {
             fullName: true,
             avatarUrl: true,
-            phoneNumber: true,
             isVerified: true,
           },
         },
@@ -120,8 +168,47 @@ router.get("/:id", async (req, res) => {
     });
 
     if (!data) {
-      return res.status(404).json({ error: "Not found" });
+      await ensureSeedApartments();
+      data = await db.query.apartments.findFirst({
+        where: eq(apartments.id, apartmentId),
+        with: {
+          photos: {
+            orderBy: [asc(apartmentPhotos.displayOrder)],
+          },
+          owner: {
+            columns: {
+              fullName: true,
+              avatarUrl: true,
+              isVerified: true,
+            },
+          },
+        },
+      });
     }
+
+    if (!data) {
+      return res.status(404).json({ error: "Not found", message: "الوحدة السكنية غير موجودة" });
+    }
+
+    // Strict privacy: if property is not approved/available ("متاح"), only Admin or the property Owner can view it
+    if (data.status !== "متاح") {
+      const auth = getAuth(req);
+      let canViewUnapproved = false;
+      if (auth?.userId) {
+        const authUser = await db.query.users.findFirst({
+          where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
+        });
+        if (authUser) {
+          if (authUser.role === "admin" || authUser.id === data.ownerId || authUser.clerkUserId === data.ownerId) {
+            canViewUnapproved = true;
+          }
+        }
+      }
+      if (!canViewUnapproved) {
+        return res.status(404).json({ error: "Not found", message: "الوحدة السكنية غير متاحة أو قيد مراجعة الإدارة" });
+      }
+    }
+
     return res.json(data);
   } catch (error) {
     req.log.error(error);
@@ -145,12 +232,24 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       ? photos
       : (Array.isArray(result.data.images) ? result.data.images : []);
 
+    // WORKFLOW RULE: If created by an Owner (non-admin), property starts in "قيد المراجعة" (Pending Review) and unverified.
+    // Admin submissions can immediately be "متاح" and verified.
+    const initialStatus = dbUser.role === "admin" 
+      ? (result.data.status || "متاح") 
+      : "قيد المراجعة";
+
+    const initialVerified = dbUser.role === "admin" 
+      ? (result.data.verified ?? true) 
+      : false;
+
     const [apartment] = await db
       .insert(apartments)
       .values({
         ...result.data,
         images: photoUrls,
         ownerId: dbUser.id,
+        status: initialStatus,
+        verified: initialVerified,
       })
       .returning();
 
@@ -210,6 +309,47 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
       ...result.data,
       updatedAt: new Date(),
     };
+
+    // If non-admin user (Owner), prevent self-verification and self-approval
+    if (dbUser.role !== "admin") {
+      if ("verified" in req.body) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "لا يمكن للمالك تعديل حالة توثيق العقار - التوثيق والاعتماد حصري لإدارة مكاني",
+        });
+      }
+
+      delete updatePayload.ownerId; // Owners cannot transfer ownership
+
+      // Critical Status Transition Security for Owners:
+      // Rejection and approval are strictly administrative powers.
+      if (req.body.status && req.body.status !== existing.status) {
+        // 1. Owner can never set status to "مرفوض" (admin rejection only)
+        if (req.body.status === "مرفوض") {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "رفض العقار قرار حصري لإدارة مكاني",
+          });
+        }
+
+        // 2. Owner cannot change status if currently "قيد المراجعة" or "مرفوض"
+        // Specifically blocks "قيد المراجعة" -> "متاح" and "قيد المراجعة" -> "مرفوض"
+        if (existing.status === "قيد المراجعة" || existing.status === "مرفوض") {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "لا يمكن للمالك تغيير حالة العقار عندما يكون قيد المراجعة أو مرفوضاً - القرار حصري لإدارة مكاني",
+          });
+        }
+
+        // 3. For approved properties, owner can only toggle between "متاح" and "مشغول"
+        if (req.body.status !== "متاح" && req.body.status !== "مشغول") {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "يمكن للمالك فقط تبديل الحالة بين متاح ومشغول للوحدات المعتمدة",
+          });
+        }
+      }
+    }
 
     if (Array.isArray(photos)) {
       updatePayload.images = photos;
@@ -278,6 +418,74 @@ router.delete("/:id", requireAuth, requireOwner, async (req, res) => {
   }
 });
 
+// POST /api/apartments/:id/approve - Strict Admin-only endpoint to approve property
+router.post("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+  const apartmentId = parseInt(req.params.id as string, 10);
+  if (Number.isNaN(apartmentId)) {
+    return res.status(400).json({ error: "Invalid apartment ID" });
+  }
+
+  try {
+    const existing = await db.query.apartments.findFirst({
+      where: eq(apartments.id, apartmentId),
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    const [updated] = await db
+      .update(apartments)
+      .set({
+        status: "متاح",
+        verified: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(apartments.id, apartmentId))
+      .returning();
+
+    req.log.info({ adminId: req.dbUser!.id, apartmentId }, "Admin approved apartment for listing");
+    return res.json(updated);
+  } catch (error) {
+    req.log.error(error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/apartments/:id/reject - Strict Admin-only endpoint to reject property
+router.post("/:id/reject", requireAuth, requireAdmin, async (req, res) => {
+  const apartmentId = parseInt(req.params.id as string, 10);
+  if (Number.isNaN(apartmentId)) {
+    return res.status(400).json({ error: "Invalid apartment ID" });
+  }
+
+  try {
+    const existing = await db.query.apartments.findFirst({
+      where: eq(apartments.id, apartmentId),
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Apartment not found" });
+    }
+
+    const [updated] = await db
+      .update(apartments)
+      .set({
+        status: "مرفوض",
+        verified: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(apartments.id, apartmentId))
+      .returning();
+
+    req.log.info({ adminId: req.dbUser!.id, apartmentId }, "Admin rejected apartment");
+    return res.json(updated);
+  } catch (error) {
+    req.log.error(error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Photo management endpoints
 router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
   const dbUser = req.dbUser!;
@@ -321,7 +529,7 @@ router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
     });
     await db
       .update(apartments)
-      .set({ images: allPhotos.map((p) => p.url) })
+      .set({ images: allPhotos.map((p: any) => p.url) })
       .where(eq(apartments.id, apartmentId));
 
     return res.status(201).json(photo);
@@ -366,7 +574,7 @@ router.delete("/:id/photos/:photoId", requireAuth, requireOwner, async (req, res
     });
     await db
       .update(apartments)
-      .set({ images: remainingPhotos.map((p) => p.url) })
+      .set({ images: remainingPhotos.map((p: any) => p.url) })
       .where(eq(apartments.id, apartmentId));
 
     return res.status(204).send();

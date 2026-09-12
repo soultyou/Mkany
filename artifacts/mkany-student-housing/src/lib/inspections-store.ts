@@ -100,7 +100,7 @@ export interface PlatformProperty {
   verified: boolean;
   premium: boolean;
   livabilityScore: number;
-  status: "متاح" | "مشغول" | "قيد المراجعة";
+  status: "متاح" | "مشغول" | "قيد المراجعة" | "مرفوض";
   ownerId?: string;
   inspectionId?: string;
   lat?: number;
@@ -741,9 +741,9 @@ export function rejectInspectionRequest(
 /**
  * استرجاع العقارات المنشورة ومزامنتها مع PostgreSQL
  */
-export async function syncPlatformPropertiesFromApi(): Promise<PlatformProperty[]> {
+export async function syncPlatformPropertiesFromApi(statusParam: string = "all"): Promise<PlatformProperty[]> {
   try {
-    const dbApartments = await getApartmentsApi();
+    const dbApartments = await getApartmentsApi({ status: statusParam });
     if (Array.isArray(dbApartments) && dbApartments.length > 0) {
       const mapped: PlatformProperty[] = dbApartments.map((a: any) => ({
         id: a.id,

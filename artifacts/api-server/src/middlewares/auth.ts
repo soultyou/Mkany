@@ -152,13 +152,14 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 };
 
 // Common reusable authorization middleware
-export const requireAdmin = requireRole(["admin"]);
-export const requireOwner = requireRole(["owner", "admin"]); // Admins usually can do what owners do
+export const requireSuperAdmin = requireRole(["super_admin"]);
+export const requireAdmin = requireRole(["admin", "super_admin"]);
+export const requireOwner = requireRole(["owner", "admin", "super_admin"]);
 
 /**
  * Helper to ensure a specific requested user ID (e.g., from URL param) 
  * matches the authenticated user, preventing IDOR.
- * Use for student-scoped operations. Admins might be allowed to bypass.
+ * Use for student-scoped operations. Admins and Super Admins might be allowed to bypass.
  */
 export const requireSelfOrAdmin = (idParamName: string = "id"): RequestHandler => {
   return (req, res, next) => {
@@ -170,8 +171,8 @@ export const requireSelfOrAdmin = (idParamName: string = "id"): RequestHandler =
 
     const requestedId = req.params[idParamName];
     
-    // User is accessing their own data OR user is an admin
-    if (dbUser.id === requestedId || dbUser.clerkUserId === requestedId || dbUser.role === "admin") {
+    // User is accessing their own data OR user is an admin or super_admin
+    if (dbUser.id === requestedId || dbUser.clerkUserId === requestedId || dbUser.role === "admin" || dbUser.role === "super_admin") {
       next();
       return;
     }

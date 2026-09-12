@@ -25,13 +25,13 @@ export interface StudentUser {
   unitsCount: string;
   propertyTypes: string;
   avatarUrl?: string;
-  role: "student" | "owner" | "admin";
+  role: "student" | "owner" | "admin" | "super_admin";
   isVerified: boolean;
 }
 
 export function isOnboardingRequired(user: StudentUser | null): boolean {
   if (!user) return false;
-  if (user.role === "admin" || user.role === "owner") return false;
+  if (user.role === "admin" || user.role === "super_admin" || user.role === "owner") return false;
   if (
     !user.fullName ||
     user.nationalId === "00000000000000" ||
@@ -60,11 +60,11 @@ interface AuthContextType {
     university?: string;
     avatarUrl?: string;
   }) => Promise<any>;
-  switchRole: (role: "student" | "owner" | "admin") => void;
+  switchRole: (role: "student" | "owner" | "admin" | "super_admin") => void;
   openSignIn: (props?: any) => void;
   openSignUp: (props?: any) => void;
   signOut: () => Promise<void>;
-  localRoleOverride: "student" | "owner" | "admin" | null;
+  localRoleOverride: "student" | "owner" | "admin" | "super_admin" | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -79,7 +79,7 @@ let clerkInstance: Clerk | null = null;
 export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; onToast?: (msg: string) => void }) {
   const [clerkLoaded, setClerkLoaded] = useState(false);
   const [clerkError, setClerkError] = useState<Error | null>(null);
-  const [localRole, setLocalRole] = useState<"student" | "owner" | "admin" | null>(null);
+  const [localRole, setLocalRole] = useState<"student" | "owner" | "admin" | "super_admin" | null>(null);
   const [sessionUser, setSessionUser] = useState<StudentUser | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -101,7 +101,7 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       try {
         // Fetch authoritative profile directly from PostgreSQL DB endpoint
         const profile = await getProfile();
-        const dbRole = (profile?.role as "student" | "owner" | "admin") || "student";
+        const dbRole = (profile?.role as "student" | "owner" | "admin" | "super_admin") || "student";
         
         setSessionUser({
           id: profile?.id || user.id,
@@ -125,7 +125,7 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
           fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
           email: user.primaryEmailAddress?.emailAddress || "",
           avatarUrl: user.imageUrl,
-          role: (user.publicMetadata?.role as "student" | "owner" | "admin") || "student",
+          role: (user.publicMetadata?.role as "student" | "owner" | "admin" | "super_admin") || "student",
           university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
           city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
           nationalId: (user.unsafeMetadata?.nationalId as string) || "",
@@ -184,7 +184,7 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     };
   }, []);
 
-  const switchRole = (_role: "student" | "owner" | "admin") => {
+  const switchRole = (_role: "student" | "owner" | "admin" | "super_admin") => {
     console.warn("switchRole disabled: DB role is the authoritative source of truth.");
     onToast?.("دور الحساب مسجل ومحمي من قاعدة البيانات ولا يمكن تعديله محلياً");
   };

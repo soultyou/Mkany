@@ -25,6 +25,8 @@ export interface StudentBooking {
   referenceNumber?: string;
   status: "pending_review" | "confirmed" | "rejected";
   adminNotes?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
   createdAt: string;
   updatedAt: string;
   property?: any;
@@ -56,6 +58,8 @@ export async function createBookingApi(data: {
   receiptImageUrl?: string;
   senderPhone?: string;
   referenceNumber?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
 }): Promise<StudentBooking> {
   const res = await fetch("/api/bookings", {
     method: "POST",
@@ -102,18 +106,34 @@ export async function getAdminBookingsApi(): Promise<StudentBooking[]> {
 }
 
 /**
+ * جلب حجز مفرد بالمعرف مع فحص الصلاحيات IDOR
+ */
+export async function getBookingByIdApi(bookingId: string): Promise<StudentBooking | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to fetch booking by id:", err);
+    return null;
+  }
+}
+
+/**
  * تحديث حالة الحجز بواسطة الآدمن
  */
 export async function updateBookingStatusApi(
   bookingId: string,
   status: "pending_review" | "confirmed" | "rejected",
-  adminNotes?: string
+  adminNotes?: string,
+  appointmentDate?: string,
+  appointmentTime?: string
 ): Promise<StudentBooking | null> {
   try {
     const res = await fetch(`/api/bookings/${bookingId}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, adminNotes }),
+      body: JSON.stringify({ status, adminNotes, appointmentDate, appointmentTime }),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -175,4 +195,27 @@ export function buildWhatsAppBookingUrl(booking: StudentBooking): string {
 مرفق سكرين شات الإيصال عبر المنصة. أرجو المراجعة وتأكيد الحجز. شكراً جزيلاً!`;
 
   return `https://wa.me/${adminWhatsAppNumber}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * تجهيز رابط واتساب لتأكيد موعد المعاينة بواسطة الآدمن للطالب (خاص بالإدارة فقط)
+ */
+export function buildWhatsAppAdminConfirmationUrl(booking: StudentBooking): string {
+  const studentPhone = booking.studentPhone || booking.student?.phoneNumber || "";
+  const studentName = booking.studentName || booking.student?.fullName || "طالب مكاني";
+  const propertyTitle = booking.propertyTitle || booking.property?.title || "العقار المذكور";
+  const appDate = booking.appointmentDate || "غير محدد";
+  const appTime = booking.appointmentTime || "غير محدد";
+
+  const text = `مرحباً ${studentName}،
+تم تأكيد موعد المعاينة في عقار ${propertyTitle}.
+الموعد: ${appDate}
+الوقت: ${appTime}
+شكراً لاستخدام مكاني.`;
+
+  // تنظيف هاتف الطالب وتشكيله بشكل آمن:
+  const cleanPhone = studentPhone.replace(/\D/g, "");
+  const formattedPhone = cleanPhone.startsWith("0") ? `2${cleanPhone}` : cleanPhone.startsWith("20") ? cleanPhone : `20${cleanPhone}`;
+
+  return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
 }

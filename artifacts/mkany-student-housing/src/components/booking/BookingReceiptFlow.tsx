@@ -69,6 +69,8 @@ export function BookingReceiptFlow({
   // بيانات إيصال التحويل
   const [senderPhone, setSenderPhone] = useState(user?.phoneNumber || "01098765432");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [appointmentDate, setAppointmentDate] = useState("الإثنين، ١٥ سبتمبر ٢٠٢٤");
+  const [appointmentTime, setAppointmentTime] = useState("الساعة ٢:٠٠ ظهراً");
   const [receiptImageUrl, setReceiptImageUrl] = useState<string>(SAMPLE_RECEIPT_PRESETS[0].url);
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -121,6 +123,8 @@ export function BookingReceiptFlow({
         receiptImageUrl,
         senderPhone,
         referenceNumber: referenceNumber || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
+        appointmentDate,
+        appointmentTime,
       });
 
       const fullBooking = {
@@ -381,7 +385,7 @@ export function BookingReceiptFlow({
                   value={senderPhone}
                   onChange={(e) => setSenderPhone(e.target.value)}
                   placeholder="010xxxxxxxx"
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary text-right"
                 />
               </div>
               <div>
@@ -391,7 +395,32 @@ export function BookingReceiptFlow({
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
                   placeholder="مثال: VF-98234"
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary text-right"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
+              <div>
+                <label className="block font-bold text-foreground mb-1">تاريخ المعاينة المطلوب:</label>
+                <input
+                  type="text"
+                  required
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                  placeholder="مثال: الإثنين، ١٥ سبتمبر ٢٠٢٤"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground outline-none focus:border-primary text-right"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-foreground mb-1">وقت المعاينة المطلوب:</label>
+                <input
+                  type="text"
+                  required
+                  value={appointmentTime}
+                  onChange={(e) => setAppointmentTime(e.target.value)}
+                  placeholder="مثال: الساعة ٢:٠٠ ظهراً"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground outline-none focus:border-primary text-right"
                 />
               </div>
             </div>

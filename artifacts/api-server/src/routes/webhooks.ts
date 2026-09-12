@@ -107,7 +107,7 @@ clerkWebhooksRouter.post(
                 phoneNumber: phoneNumber || existingUser.phoneNumber,
                 avatarUrl: avatarUrl || existingUser.avatarUrl,
                 // Preserve existing DB role unless explicitly provided in publicMetadata with valid value
-                role: publicMetadata.role && ["student", "owner", "admin"].includes(publicMetadata.role)
+                role: publicMetadata.role && ["student", "owner", "admin", "super_admin"].includes(publicMetadata.role)
                   ? publicMetadata.role
                   : existingUser.role,
                 isVerified: typeof publicMetadata.isVerified === "boolean"

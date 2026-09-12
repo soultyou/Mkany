@@ -30,6 +30,7 @@ export const inspections = pgTable("inspections", {
   inspectorReport: text("inspector_report"),
   livabilityScore: integer("livability_score"),
   video360Url: text("video360_url"),
+  model3dUrl: text("model_3d_url"),
   finalImages: jsonb("final_images").$type<string[]>(),
   rejectionReason: text("rejection_reason"),
   publishedPropertyId: varchar("published_property_id", { length: 128 }),

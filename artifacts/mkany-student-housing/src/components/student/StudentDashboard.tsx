@@ -21,11 +21,18 @@ import {
   X,
   ChevronRight,
   BookOpen,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Heart,
+  Trash2,
+  HeartOff,
+  Sparkle,
+  LifeBuoy
 } from "lucide-react";
 import { useAuth, EGYPTIAN_UNIVERSITIES, SignInButton } from "@/components/auth/clerk-auth";
 import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
+import { getStudentFavoritesApi, removeFavoriteApi, StudentFavorite } from "@/lib/favorites-store";
 import { StandardModal } from "@/components/ui/StandardModal";
+import { SupportCenter } from "@/components/support/SupportCenter";
 
 interface StudentDashboardProps {
   openToast: (msg: string) => void;
@@ -36,8 +43,13 @@ interface StudentDashboardProps {
 
 export function StudentDashboard({ openToast, onExploreProperties, onViewPropertyModal, onGoToOwnerDashboard }: StudentDashboardProps) {
   const { user, isSignedIn, openSignIn, updateUserProfile, switchRole } = useAuth();
-  const [activeTab, setActiveTab] = useState<"bookings" | "profile">("bookings");
+  const [activeTab, setActiveTab] = useState<"bookings" | "favorites" | "profile" | "support">("bookings");
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
+
+  // مفضلة الطالب من PostgreSQL
+  const [favorites, setFavorites] = useState<StudentFavorite[]>([]);
+  const [isLoadingFavorites, setIsLoadingFavorites] = useState(false);
+  const [removingFavId, setRemovingFavId] = useState<number | null>(null);
 
   // حقول الملف الشخصي القابلة للتعديل
   const [fullName, setFullName] = useState(user?.fullName || "");
@@ -139,6 +151,18 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
   const [bookings, setBookings] = useState<StudentBooking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
 
+  const fetchFavorites = () => {
+    setIsLoadingFavorites(true);
+    getStudentFavoritesApi()
+      .then((res) => {
+        setFavorites(res.favorites);
+        setIsLoadingFavorites(false);
+      })
+      .catch(() => {
+        setIsLoadingFavorites(false);
+      });
+  };
+
   React.useEffect(() => {
     if (isSignedIn) {
       setIsLoadingBookings(true);
@@ -150,8 +174,34 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
         .catch(() => {
           setIsLoadingBookings(false);
         });
+
+      fetchFavorites();
     }
   }, [isSignedIn]);
+
+  // استماع لأي تغيير يطرأ على المفضلة من واجهة التصفح
+  React.useEffect(() => {
+    const handleFavUpdated = () => {
+      if (isSignedIn) {
+        fetchFavorites();
+      }
+    };
+    window.addEventListener("mkany_favorites_updated", handleFavUpdated);
+    return () => window.removeEventListener("mkany_favorites_updated", handleFavUpdated);
+  }, [isSignedIn]);
+
+  const handleRemoveFavorite = async (propertyId: number) => {
+    setRemovingFavId(propertyId);
+    const res = await removeFavoriteApi(propertyId);
+    setRemovingFavId(null);
+    if (res.success) {
+      setFavorites((prev) => prev.filter((f) => f.propertyId !== propertyId));
+      openToast("تمت إزالة العقار من المفضلة");
+      window.dispatchEvent(new CustomEvent("mkany_favorites_updated"));
+    } else {
+      openToast(res.message || "فشل في إزالة العقار من المفضلة");
+    }
+  };
 
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,6 +311,18 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
           تفاصيل وحالة حجز السكن ({bookings.length})
         </button>
         <button
+          onClick={() => setActiveTab("favorites")}
+          className={`flex items-center gap-2 border-b-2 px-6 py-3 transition-colors ${
+            activeTab === "favorites"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="tab-student-favorites"
+        >
+          <Heart size={18} />
+          قائمة المفضلة ({favorites.length})
+        </button>
+        <button
           onClick={() => setActiveTab("profile")}
           className={`flex items-center gap-2 border-b-2 px-6 py-3 transition-colors ${
             activeTab === "profile"
@@ -271,6 +333,18 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
         >
           <User size={18} />
           إدارة الملف الشخصي والتوثيق
+        </button>
+        <button
+          onClick={() => setActiveTab("support")}
+          className={`flex items-center gap-2 border-b-2 px-6 py-3 transition-colors ${
+            activeTab === "support"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="tab-student-support"
+        >
+          <LifeBuoy size={18} />
+          الدعم والمساعدة
         </button>
       </div>
 
@@ -397,6 +471,168 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* محتوى تبويب المفضلة المحفوظة للطالب من PostgreSQL */}
+      {activeTab === "favorites" && (
+        <div className="space-y-6" data-testid="section-student-favorites">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                <Heart size={22} className="text-rose-500 fill-rose-500" />
+                سكنك المحفوظ بالمفضلة ({favorites.length})
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                العقارات المعتمدة التي قمت بحفظها للمقارنة والوصول السريع إليها أو الحجز الفوري
+              </p>
+            </div>
+            <button
+              onClick={onExploreProperties}
+              className="inline-flex items-center gap-2 self-start rounded-xl border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-bold text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Home size={15} />
+              استكشاف المزيد من الوحدات
+            </button>
+          </div>
+
+          {isLoadingFavorites ? (
+            <div className="rounded-3xl border border-border bg-card p-12 text-center">
+              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              <p className="text-xs font-bold text-muted-foreground">جاري تحميل المفضلة من السيرفر...</p>
+            </div>
+          ) : favorites.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-border bg-card p-12 text-center" data-testid="empty-favorites-card">
+              <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-500">
+                <HeartOff size={34} />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">قائمة المفضلة فارغة حالياً</h3>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground leading-6">
+                لم تقم بحفظ أي وحدة سكنية بعد. أثناء تصفحك للسكن الجامعي المعتمد، اضغط على علامة القلب ❤️ لحفظ أي وحدة والرجوع إليها في أي وقت.
+              </p>
+              <button
+                onClick={onExploreProperties}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
+                data-testid="btn-empty-favorites-browse"
+              >
+                <Sparkles size={15} />
+                تصفح الوحدات السكنية المعتمدة
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {favorites.map((fav) => {
+                const p = fav.property;
+                const coverImage = p.photos?.[0]?.url || p.images?.[0] || "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200";
+                const isRemoving = removingFavId === fav.propertyId;
+
+                return (
+                  <article
+                    key={fav.id}
+                    className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
+                    data-testid={`card-favorite-${fav.propertyId}`}
+                  >
+                    <div>
+                      {/* صورة العقار والحالات */}
+                      <div className="relative h-48 w-full overflow-hidden bg-muted">
+                        <img
+                          src={coverImage}
+                          alt={p.title}
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          onError={(e) => {
+                            (e.target as HTMLElement).setAttribute(
+                              "src",
+                              "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200"
+                            );
+                          }}
+                        />
+
+                        {/* بادجات التوثيق والتميز */}
+                        <div className="absolute inset-x-3 top-3 flex items-center justify-between">
+                          <div className="flex flex-wrap gap-1">
+                            {p.verified && (
+                              <span className="flex items-center gap-1 rounded-full bg-background/95 px-2 py-0.5 text-[10px] font-bold text-primary shadow-sm">
+                                <ShieldCheck size={11} />
+                                موثق
+                              </span>
+                            )}
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              p.status === "متاح" 
+                                ? "bg-emerald-500/90 text-white" 
+                                : "bg-muted text-muted-foreground"
+                            }`}>
+                              {p.status === "متاح" ? "متاح للحجز" : p.status}
+                            </span>
+                          </div>
+
+                          {/* زر حذف من المفضلة */}
+                          <button
+                            onClick={() => handleRemoveFavorite(fav.propertyId)}
+                            disabled={isRemoving}
+                            className="rounded-full bg-background/90 p-2 text-rose-500 shadow-sm transition-colors hover:bg-rose-500 hover:text-white disabled:opacity-50"
+                            title="إزالة من المفضلة"
+                            aria-label="إزالة من المفضلة"
+                            data-testid={`btn-remove-fav-${fav.propertyId}`}
+                          >
+                            {isRemoving ? (
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-rose-500 border-t-transparent" />
+                            ) : (
+                              <Trash2 size={15} />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* تفاصيل العقار */}
+                      <div className="p-4 text-right">
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <h3 className="text-base font-extrabold text-foreground line-clamp-1">
+                            {p.title}
+                          </h3>
+                          <div className="shrink-0 text-left">
+                            <strong className="text-base font-black text-primary">
+                              {p.pricePerMonth?.toLocaleString()}
+                            </strong>
+                            <span className="block text-[10px] text-muted-foreground">ج.م / شهر</span>
+                          </div>
+                        </div>
+
+                        <p className="mb-3 flex items-center gap-1 text-xs text-muted-foreground line-clamp-1">
+                          <Building2 size={13} className="text-primary shrink-0" />
+                          {p.address} • {p.university}
+                        </p>
+
+                        <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground border-y border-border/60 py-2">
+                          <span>{p.roomType}</span>
+                          {p.areaSqm && <span>• {p.areaSqm} م²</span>}
+                          {p.bedrooms && <span>• {p.bedrooms} غرف</span>}
+                          {p.livabilityScore && (
+                            <span className="text-primary font-bold">
+                              • جودة المعيشة {p.livabilityScore}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* أزرار الإجراءات */}
+                    <div className="p-4 pt-0">
+                      {onViewPropertyModal && (
+                        <button
+                          onClick={() => onViewPropertyModal(p)}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/50 py-2.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+                          data-testid={`btn-view-fav-details-${fav.propertyId}`}
+                        >
+                          <Eye size={15} />
+                          عرض تفاصيل العقار
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
@@ -548,46 +784,88 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
 
           {/* بطاقة وضع التفعيل وحالة التوثيق */}
           <div className="space-y-6">
-            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600">
-                  <ShieldCheck size={26} />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-foreground">وضع التفعيل (Verification)</h3>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                    حساب طالب مفعل وموثق بنجاح ✓
-                  </span>
-                </div>
-              </div>
+            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm" data-testid="student-verification-card">
+              {(() => {
+                const isVerified = Boolean(user?.isVerified);
+                const hasNationalId = Boolean(user?.nationalId && user.nationalId.length === 14 && user.nationalId !== "00000000000000");
 
-              <p className="text-xs text-muted-foreground leading-6">
-                توثيق حسابك الجامعي يمنحك الأولوية في حجز الشقق المميزة، والاستفادة من ضمان عقود مكاني الموثقة بدون أي عمولة سماسرة.
-              </p>
+                let statusBadge = {
+                  text: "موثق",
+                  subtext: "حساب طالب موثق ومعتمد رسمياً ✓",
+                  color: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                  iconColor: "bg-emerald-500/15 text-emerald-600",
+                  icon: <ShieldCheck size={26} />,
+                };
 
-              <div className="mt-5 space-y-2 border-t border-border pt-4 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">الرقم القومي (١٤ رقماً):</span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 size={13} />
-                    تم التحقق
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">القيد بالجامعة المصرية:</span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 size={13} />
-                    معتمد
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">رقم الهاتف وواتساب:</span>
-                  <span className="font-bold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 size={13} />
-                    نشط
-                  </span>
-                </div>
-              </div>
+                if (!isVerified) {
+                  if (hasNationalId) {
+                    statusBadge = {
+                      text: "قيد التحقق",
+                      subtext: "بياناتك قيد التدقيق والمراجعة بواسطة إدارة مكاني",
+                      color: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+                      iconColor: "bg-amber-500/15 text-amber-600",
+                      icon: <Clock size={26} />,
+                    };
+                  } else {
+                    statusBadge = {
+                      text: "يحتاج إجراء",
+                      subtext: "يرجى إدخال الرقم القومي المكون من ١٤ رقماً لطلب التوثيق",
+                      color: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+                      iconColor: "bg-rose-500/15 text-rose-600",
+                      icon: <AlertCircle size={26} />,
+                    };
+                  }
+                }
+
+                return (
+                  <>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${statusBadge.iconColor}`}>
+                        {statusBadge.icon}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-extrabold text-foreground">حالة الحساب</h3>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-black ${statusBadge.color}`} data-testid="student-verification-status">
+                            {statusBadge.text}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground font-semibold">
+                          {statusBadge.subtext}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground leading-6">
+                      توثيق حسابك الجامعي يمنحك الأولوية في حجز الشقق المميزة، والاستفادة من ضمان عقود مكاني الموثقة بدون أي عمولة سماسرة.
+                    </p>
+
+                    <div className="mt-5 space-y-2 border-t border-border pt-4 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">الرقم القومي (١٤ رقماً):</span>
+                        <span className={`font-bold flex items-center gap-1 ${hasNationalId ? "text-emerald-600" : "text-amber-600"}`}>
+                          {hasNationalId ? <CheckCircle2 size={13} /> : <Clock size={13} />}
+                          {hasNationalId ? "مكتمل" : "مطلوب الإدخال"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">القيد بالجامعة المصرية:</span>
+                        <span className="font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 size={13} />
+                          {user?.university || "جامعة كفر الشيخ"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">رقم الهاتف للتواصل:</span>
+                        <span className="font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 size={13} />
+                          {user?.phoneNumber || "نشط"}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* بطاقة الدعم السريع عبر واتساب */}
@@ -610,6 +888,13 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
               </a>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* محتوى تبويب الدعم والمساعدة */}
+      {activeTab === "support" && (
+        <div data-testid="section-student-support">
+          <SupportCenter role="student" openToast={openToast} />
         </div>
       )}
 

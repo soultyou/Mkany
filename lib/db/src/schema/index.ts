@@ -18,20 +18,27 @@
 //   export type Post = typeof postsTable.$inferSelect;
 
 import { relations } from "drizzle-orm";
-import { users } from "./users.ts";
-import { apartments, apartmentPhotos } from "./apartments.ts";
-import { inspections } from "./inspections.ts";
-import { bookings } from "./bookings.ts";
+import { users } from "./users";
+import { apartments, apartmentPhotos } from "./apartments";
+import { inspections } from "./inspections";
+import { bookings } from "./bookings";
+import { favorites } from "./favorites";
+import { supportConversations, supportMessages } from "./support";
 
-export * from "./users.ts";
-export * from "./apartments.ts";
-export * from "./inspections.ts";
-export * from "./bookings.ts";
+export * from "./users";
+export * from "./apartments";
+export * from "./inspections";
+export * from "./bookings";
+export * from "./favorites";
+export * from "./support";
 
 export const usersRelations = relations(users, ({ many }) => ({
   apartments: many(apartments),
   inspections: many(inspections),
   bookings: many(bookings),
+  favorites: many(favorites),
+  supportConversations: many(supportConversations),
+  supportMessages: many(supportMessages),
 }));
 
 export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
@@ -45,6 +52,7 @@ export const apartmentsRelations = relations(apartments, ({ one, many }) => ({
     references: [inspections.id],
   }),
   bookings: many(bookings),
+  favorites: many(favorites),
 }));
 
 export const apartmentPhotosRelations = relations(apartmentPhotos, ({ one }) => ({
@@ -71,4 +79,36 @@ export const bookingsRelations = relations(bookings, ({ one }) => ({
     references: [apartments.id],
   }),
 }));
+
+export const favoritesRelations = relations(favorites, ({ one }) => ({
+  student: one(users, {
+    fields: [favorites.studentId],
+    references: [users.id],
+  }),
+  property: one(apartments, {
+    fields: [favorites.propertyId],
+    references: [apartments.id],
+  }),
+}));
+
+export const supportConversationsRelations = relations(supportConversations, ({ one, many }) => ({
+  user: one(users, {
+    fields: [supportConversations.userId],
+    references: [users.id],
+  }),
+  messages: many(supportMessages),
+}));
+
+export const supportMessagesRelations = relations(supportMessages, ({ one }) => ({
+  conversation: one(supportConversations, {
+    fields: [supportMessages.conversationId],
+    references: [supportConversations.id],
+  }),
+  sender: one(users, {
+    fields: [supportMessages.senderUserId],
+    references: [users.id],
+  }),
+}));
+
+
 

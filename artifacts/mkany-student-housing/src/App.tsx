@@ -28,6 +28,7 @@ import {
   getAmenitiesDisplayList,
   NearbyAmenities
 } from "@/lib/inspections-store";
+import { getStudentFavoritesApi, addFavoriteApi, removeFavoriteApi } from "@/lib/favorites-store";
 import { InteractiveLeafletMap } from "@/components/map/InteractiveLeafletMap";
 const logo = "/mkany-logo.png";
 
@@ -37,7 +38,7 @@ type Property = {
   id: number; title: string; address: string; city: string; university: string; pricePerMonth: number;
   roomType: string; areaSqm: number; bedrooms: number; bathrooms: number; floor: string; furnishing: string;
   availableFrom: string; currentRoommates: number; images: string[]; video360Url: string | null;
-  verified: boolean; premium: boolean; livabilityScore: number; status: "متاح" | "مشغول" | "قيد المراجعة";
+  verified: boolean; premium: boolean; livabilityScore: number; status: "متاح" | "مشغول" | "قيد المراجعة" | "مرفوض";
 };
 
 const properties: Property[] = [
@@ -157,8 +158,8 @@ function Header({
               </button>
             )}
 
-            {/* زر لوحة المالك - يظهر فقط للملاك والآدمن */}
-            {(user?.role === "owner" || user?.role === "admin") && (
+            {/* زر لوحة المالك - يظهر للملاك */}
+            {user?.role === "owner" && (
               <button
                 onClick={() => setView("ownerDashboard")}
                 className={`hidden lg:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
@@ -171,6 +172,18 @@ function Header({
                 <Building2 size={15} />
                 لوحة تحكم المالك
               </button>
+            )}
+
+            {/* زر لوحة الإدارة والمشرفين - يظهر للآدمن والسوبر آدمن */}
+            {(user?.role === "admin" || user?.role === "super_admin") && (
+              <a
+                href="/admin"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-purple-500/40 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition-all shadow-sm"
+                data-testid="header-button-admin-portal"
+              >
+                <ShieldCheck size={15} />
+                <span>لوحة الإدارة والمشرفين</span>
+              </a>
             )}
           </SignedIn>
           
@@ -194,7 +207,7 @@ function Header({
                   أهلاً بك، {user?.fullName?.split(" ")[0]} 👋
                 </span>
                 <span className="text-[10px] text-muted-foreground font-medium">
-                  {user?.role === "owner" ? "مالك عقارات موثق" : user?.role === "admin" ? "فريق المعاينة والتوثيق" : user?.university || "طالب مكاني"}
+                  {user?.role === "owner" ? "مالك عقارات موثق" : (user?.role === "admin" || user?.role === "super_admin") ? "فريق المعاينة والتوثيق" : user?.university || "طالب مكاني"}
                 </span>
               </div>
               <UserButton />
@@ -244,7 +257,7 @@ function Header({
                 </button>
               )}
 
-              {(user?.role === "owner" || user?.role === "admin") && (
+              {(user?.role === "owner" || user?.role === "admin" || user?.role === "super_admin") && (
                 <button 
                   onClick={() => { setView("ownerDashboard"); setMenuOpen(false); }} 
                   className="text-right text-primary flex items-center gap-2" 
@@ -328,7 +341,21 @@ function PropertyCard({ property, saved, onSave, onOpen }: { property: Property;
   </article>;
 }
 
-function PropertyDetail({ property, onClose, onAI, onBook }: { property: Property; onClose: () => void; onAI: () => void; onBook: () => void }) {
+function PropertyDetail({ 
+  property, 
+  onClose, 
+  onAI, 
+  onBook,
+  saved,
+  onSave
+}: { 
+  property: Property; 
+  onClose: () => void; 
+  onAI: () => void; 
+  onBook: () => void;
+  saved?: boolean;
+  onSave?: () => void;
+}) {
   const [media, setMedia] = useState<"photos" | "video">("photos"); const [photo, setPhoto] = useState(0);
   const [selectedAmenityKey, setSelectedAmenityKey] = useState<keyof NearbyAmenities | null>("universityGate");
   const facts: Array<[ComponentType<{ size?: number; className?: string }>, string, string]> = [[Ruler, "المساحة", `${property.areaSqm} م²`], [BedDouble, "عدد الغرف", `${property.bedrooms}`], [Bath, "الحمامات", `${property.bathrooms}`], [Building2, "الدور", property.floor], [Sofa, "نوع الفرش", property.furnishing], [CalendarDays, "تاريخ التوفر", property.availableFrom], [Users, "الشركاء الحاليون", `${property.currentRoommates}`]];
@@ -343,7 +370,33 @@ function PropertyDetail({ property, onClose, onAI, onBook }: { property: Propert
   }, [effectiveAmenities, property]);
 
   return <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}><div className="p-4 pt-14 sm:p-7 sm:pt-14">
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="mb-1 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={15} className="text-primary" />{property.address}</p><h2 className="text-2xl font-extrabold sm:text-3xl">{property.title}</h2></div><div className="text-left"><strong className="text-2xl text-primary">{formatPrice(property.pricePerMonth)} <small className="text-sm font-semibold">جنيه / شهر</small></strong><p className="text-xs text-muted-foreground">إيجار الوحدة فقط</p></div></div>
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p className="mb-1 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={15} className="text-primary" />{property.address}</p>
+        <h2 className="text-2xl font-extrabold sm:text-3xl">{property.title}</h2>
+      </div>
+      <div className="flex items-center gap-3">
+        {onSave && (
+          <button
+            onClick={onSave}
+            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all shadow-sm ${
+              saved
+                ? "border-rose-500 bg-rose-500 text-white"
+                : "border-border bg-card text-foreground hover:border-primary"
+            }`}
+            aria-label={saved ? "إزالة من المفضلة" : "إضافة للمفضلة"}
+            data-testid={`button-detail-save-${property.id}`}
+          >
+            <Heart size={15} fill={saved ? "currentColor" : "none"} />
+            {saved ? "في المفضلة" : "حفظ بالمفضلة"}
+          </button>
+        )}
+        <div className="text-left">
+          <strong className="text-2xl text-primary">{formatPrice(property.pricePerMonth)} <small className="text-sm font-semibold">جنيه / شهر</small></strong>
+          <p className="text-xs text-muted-foreground">إيجار الوحدة فقط</p>
+        </div>
+      </div>
+    </div>
     <div className="overflow-hidden rounded-xl border border-border bg-card"><div className="relative h-64 sm:h-[390px]">{media === "photos" ? <ImageWithFallback src={property.images[photo]} alt={property.title} className="h-full w-full object-cover" testId="img-detail-main" /> : property.video360Url ? <video src={property.video360Url} className="h-full w-full object-cover" controls autoPlay muted data-testid="video-tour" /> : <div className="hero-wash flex h-full flex-col items-center justify-center gap-3 text-center"><Sparkles className="text-primary" size={35} /><strong>معاينة تخيلية للجولة</strong><span className="text-xs text-muted-foreground">هذه الوحدة لا تحتوي على فيديو 360° حقيقي بعد</span></div>}<div className="absolute right-3 top-3 flex overflow-hidden rounded-lg border border-white/20 bg-slate-950/65 p-1 text-xs font-bold text-white"><button onClick={() => setMedia("photos")} className={`rounded-md px-3 py-2 ${media === "photos" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-photos">صور</button><button onClick={() => setMedia("video")} className={`rounded-md px-3 py-2 ${media === "video" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-video">جولة 360°</button></div></div><div className="flex gap-2 overflow-x-auto p-3">{property.images.map((img, i) => <button key={img} onClick={() => { setPhoto(i); setMedia("photos"); }} className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 ${photo === i && media === "photos" ? "border-primary" : "border-transparent"}`} data-testid={`button-thumbnail-${i}`}><ImageWithFallback src={img} alt="" className="h-full w-full object-cover" /></button>)}</div></div>
     <section className="section-rule mt-7 pt-6"><h3 className="mb-4 text-lg font-bold">تفاصيل الوحدة</h3><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{facts.map(([Icon, label, value]) => <div className="rounded-lg border border-border bg-card p-3" key={label}><Icon size={17} className="mb-2 text-primary" /><span className="block text-[11px] text-muted-foreground">{label}</span><strong className="text-sm">{value}</strong></div>)}</div></section>
     
@@ -650,13 +703,74 @@ function AppContent() {
     return cityOkay && typeOkay && budgetOkay && tabOkay; 
   }), [platformProperties, query, filterTab]);
 
+  // جلب وتحديث مفضلة الطالب من قاعدة بيانات PostgreSQL
+  useEffect(() => {
+    if (isSignedIn && user?.role === "student") {
+      getStudentFavoritesApi().then((res) => {
+        setSaved(res.propertyIds);
+      });
+    } else {
+      setSaved([]);
+    }
+  }, [isSignedIn, user?.role]);
+
+  // مستمع تحديث المفضلة عبر النوافذ أو الإجراءات المختلفة
+  useEffect(() => {
+    const handleFavUpdated = () => {
+      if (isSignedIn && user?.role === "student") {
+        getStudentFavoritesApi().then((res) => {
+          setSaved(res.propertyIds);
+        });
+      }
+    };
+    window.addEventListener("mkany_favorites_updated", handleFavUpdated);
+    return () => window.removeEventListener("mkany_favorites_updated", handleFavUpdated);
+  }, [isSignedIn, user?.role]);
+
   const search = (city: string, type: string, budget: string) => { 
     setActiveView("listings"); 
     setQuery({ city, type, budget }); 
     window.setTimeout(() => document.getElementById("discover")?.scrollIntoView({ behavior: "smooth" }), 20); 
   };
 
-  const toggleSave = (id: number) => setSaved((x) => x.includes(id) ? x.filter((i) => i !== id) : [...x, id]);
+  const toggleSave = async (id: number) => {
+    if (!isSignedIn) {
+      setToast("يرجى تسجيل الدخول بحساب طالب لحفظ العقارات في المفضلة");
+      return;
+    }
+
+    if (user?.role === "owner") {
+      setToast("قائمة المفضلة مخصصة لحسابات الطلاب فقط");
+      return;
+    }
+
+    const isCurrentlySaved = saved.includes(id);
+
+    // تحديث تفاؤلي سريع للواجهة (Optimistic UI)
+    setSaved((prev) => (isCurrentlySaved ? prev.filter((item) => item !== id) : [...prev, id]));
+
+    if (isCurrentlySaved) {
+      const res = await removeFavoriteApi(id);
+      if (res.success) {
+        setToast("تمت إزالة الوحدة من المفضلة");
+        window.dispatchEvent(new CustomEvent("mkany_favorites_updated"));
+      } else {
+        // التراجع في حال حدوث خطأ
+        setSaved((prev) => [...prev, id]);
+        setToast(res.message || "فشل في إزالة العقار من المفضلة");
+      }
+    } else {
+      const res = await addFavoriteApi(id);
+      if (res.success) {
+        setToast("تمت إضافة الوحدة إلى المفضلة بنجاح ❤️");
+        window.dispatchEvent(new CustomEvent("mkany_favorites_updated"));
+      } else {
+        // التراجع في حال حدوث خطأ
+        setSaved((prev) => prev.filter((item) => item !== id));
+        setToast(res.message || "فشل في إضافة العقار للمفضلة");
+      }
+    }
+  };
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground">
@@ -755,7 +869,16 @@ function AppContent() {
         onGoStudentDashboard={() => setActiveView("studentDashboard")}
       />
 
-      {selected && <PropertyDetail property={selected} onClose={() => setSelected(null)} onAI={() => setAiOpen(true)} onBook={() => setBookingOpen(true)} />}
+      {selected && (
+        <PropertyDetail 
+          property={selected} 
+          onClose={() => setSelected(null)} 
+          onAI={() => setAiOpen(true)} 
+          onBook={() => setBookingOpen(true)} 
+          saved={saved.includes(selected.id)}
+          onSave={() => toggleSave(selected.id)}
+        />
+      )}
       {aiOpen && <AIFlow onClose={() => setAiOpen(false)} openToast={setToast} />}
       
       {/* تدفق رفع الإيصال والربط الفوري بالواتساب بدلاً من نافذة الدفع التقليدية */}
@@ -787,10 +910,15 @@ function RootRouter() {
 
   // مسار الآدمن المستقل والمشفر
   const isAdminPath =
+    location === "/admin" ||
+    location.startsWith("/admin/") ||
     location === "/admin-secure-portal" ||
     location.startsWith("/admin-secure-portal") ||
     hash.includes("admin-secure-portal") ||
-    search.includes("admin-secure-portal");
+    search.includes("admin-secure-portal") ||
+    hash === "#admin" ||
+    hash === "#mkany-admin" ||
+    hash === "#stealth-admin";
 
   if (isAdminPath) {
     return <AdminSecurePortalPage />;

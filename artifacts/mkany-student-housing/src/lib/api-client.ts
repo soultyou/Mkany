@@ -193,3 +193,59 @@ export async function deleteApartmentPhotoApi(apartmentId: number, photoId: stri
     method: "DELETE",
   });
 }
+
+// ==========================================
+// User Account Verification & Admin Management
+// ==========================================
+
+export async function getUsersApi(params?: { role?: string; isVerified?: boolean; search?: string }) {
+  const query = new URLSearchParams();
+  if (params?.role) query.append("role", params.role);
+  if (params?.isVerified !== undefined) query.append("isVerified", String(params.isVerified));
+  if (params?.search) query.append("search", params.search);
+  const qs = query.toString();
+  return apiFetch(`/api/users${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export async function getUserByIdApi(id: string) {
+  return apiFetch(`/api/users/${id}`, { method: "GET" });
+}
+
+export async function updateUserVerificationApi(id: string, isVerified: boolean) {
+  return apiFetch(`/api/users/${id}/verification`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isVerified }),
+  });
+}
+
+export async function updateUserRoleApi(id: string, role: "student" | "owner" | "admin" | "super_admin") {
+  return apiFetch(`/api/users/${id}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function deleteUserApi(id: string) {
+  return apiFetch(`/api/users/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// ==========================================
+// Property Approval & Review (Separate from User Verification)
+// ==========================================
+
+export async function approveApartmentApi(apartmentId: number) {
+  return apiFetch(`/api/apartments/${apartmentId}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function rejectApartmentApi(apartmentId: number) {
+  return apiFetch(`/api/apartments/${apartmentId}/reject`, {
+    method: "POST",
+  });
+}
+

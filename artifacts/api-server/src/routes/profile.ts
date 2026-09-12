@@ -21,6 +21,15 @@ profileRouter.patch("/", async (req, res) => {
     return;
   }
 
+  // Security check: Students and Owners cannot self-verify or modify privileged fields
+  if ("isVerified" in req.body || "verified" in req.body || "role" in req.body) {
+    res.status(403).json({
+      error: "Forbidden",
+      message: "لا يمكن تعديل الحقول الأمنية المحمية (isVerified, verified, role) - التوثيق يتم حصراً بواسطة المشرفين",
+    });
+    return;
+  }
+
   const result = UpdateProfileBody.safeParse(req.body);
   if (!result.success) {
     res.status(400).json({ error: "Bad Request", issues: result.error.format() });

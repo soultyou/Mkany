@@ -84,7 +84,7 @@ export function OwnerApartmentModal({
   const [furnishing, setFurnishing] = useState(initialData?.furnishing || "مفروشة بالكامل");
   const [availableFrom, setAvailableFrom] = useState(initialData?.availableFrom || "متاح الآن فوراً");
   const [currentRoommates, setCurrentRoommates] = useState<number>(initialData?.currentRoommates || 0);
-  const [status, setStatus] = useState<string>(initialData?.status || "متاح");
+  const [status, setStatus] = useState<string>(initialData?.status || "قيد المراجعة");
   const [description, setDescription] = useState(
     (initialData as any)?.description || "شقة طلابية متميزة قريبة من الحرم الجامعي والمواصلات العامة ومزودة بكافة الخدمات الأساسية."
   );
@@ -229,13 +229,18 @@ export function OwnerApartmentModal({
         furnishing,
         availableFrom,
         currentRoommates: Number(currentRoommates),
-        status,
+        status: !initialData
+          ? "قيد المراجعة"
+          : initialData.status === "قيد المراجعة"
+          ? "قيد المراجعة"
+          : initialData.status === "مرفوض"
+          ? "مرفوض"
+          : (status === "مشغول" ? "مشغول" : "متاح"),
         description: description.trim(),
         photos: photos.filter(Boolean),
         images: photos.filter(Boolean),
         lat: effectiveLat,
         lng: effectiveLng,
-        verified: true,
         livabilityScore: initialData?.livabilityScore || 91,
       };
 
@@ -401,18 +406,27 @@ export function OwnerApartmentModal({
 
             <div>
               <label className="block text-xs font-bold mb-1.5">
-                حالة التوفر <span className="text-rose-500">*</span>
+                حالة الاعتماد والنشر <span className="text-rose-500">*</span>
               </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold focus:border-primary focus:outline-none"
-                data-testid="select-apartment-status"
-              >
-                <option value="متاح">متاح الآن للحجز</option>
-                <option value="مشغول">مشغول حالياً</option>
-                <option value="قيد المراجعة">قيد المراجعة والصيانة</option>
-              </select>
+              {(!initialData || initialData.status === "قيد المراجعة") ? (
+                <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  قيد المراجعة والاعتماد — يتم الاعتماد والنشر حصراً بواسطة الإدارة بعد المعاينة
+                </div>
+              ) : initialData.status === "مرفوض" ? (
+                <div className="w-full rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                  العقار مرفوض من الإدارة — يرجى مراجعة المعايير
+                </div>
+              ) : (
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold focus:border-primary focus:outline-none"
+                  data-testid="select-apartment-status"
+                >
+                  <option value="متاح">متاح الآن للحجز</option>
+                  <option value="مشغول">مشغول حالياً</option>
+                </select>
+              )}
             </div>
 
             <div>
