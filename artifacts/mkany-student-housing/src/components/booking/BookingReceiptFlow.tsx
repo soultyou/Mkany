@@ -127,7 +127,7 @@ export function BookingReceiptFlow({
       const savedBooking = await createBookingApi({
         propertyId: property.id,
         paymentMethod,
-        paymentAmount: property.pricePerMonth,
+        paymentAmount: 1200,
         receiptImageUrl,
         senderPhone,
         referenceNumber: referenceNumber || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
@@ -233,11 +233,15 @@ export function BookingReceiptFlow({
                 </span>
                 <h3 className="text-base font-bold text-foreground mt-1 line-clamp-1">{property.title}</h3>
                 <p className="text-xs text-muted-foreground">{property.address}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">الإيجار الشهري المطلوب:</span>
-                  <strong className="text-sm font-extrabold text-primary">
-                    {property.pricePerMonth} جنيه / شهر
-                  </strong>
+                <div className="mt-2 space-y-1.5 border-t border-border/40 pt-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground font-bold">اشتراك مكاني المطلوب:</span>
+                    <strong className="text-sm font-extrabold text-primary">1200 جنيه (مرة واحدة)</strong>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">الإيجار الشهري للوحدة (للمالك):</span>
+                    <strong className="text-xs font-bold text-foreground">{property.pricePerMonth} جنيه / شهر</strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -359,7 +363,7 @@ export function BookingReceiptFlow({
               </div>
 
               <p className="mt-2 text-[11px] text-muted-foreground leading-5">
-                قم بالتحويل بمبلغ تأمين الحجز أو الإيجار (<strong className="text-foreground">{property.pricePerMonth} ج.م</strong>) إلى الرقم أعلاه، ثم التقط سكرين شات لإيصال التحويل وارفعه في الأسفل.
+                قم بالتحويل بقيمة اشتراك مكاني للتفعيل والتوثيق (<strong className="text-foreground">1200 ج.م</strong>) إلى الرقم أعلاه، ثم التقط سكرين شات لإيصال التحويل وارفعه في الأسفل.
               </p>
             </div>
 

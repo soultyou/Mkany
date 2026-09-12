@@ -21,7 +21,7 @@ import { relations } from "drizzle-orm";
 import { users } from "./users";
 import { apartments, apartmentPhotos } from "./apartments";
 import { inspections } from "./inspections";
-import { bookings } from "./bookings";
+import { bookings, rentPayments } from "./bookings";
 import { favorites } from "./favorites";
 import { supportConversations, supportMessages } from "./support";
 
@@ -69,7 +69,7 @@ export const inspectionsRelations = relations(inspections, ({ one }) => ({
   }),
 }));
 
-export const bookingsRelations = relations(bookings, ({ one }) => ({
+export const bookingsRelations = relations(bookings, ({ one, many }) => ({
   student: one(users, {
     fields: [bookings.studentId],
     references: [users.id],
@@ -77,6 +77,14 @@ export const bookingsRelations = relations(bookings, ({ one }) => ({
   property: one(apartments, {
     fields: [bookings.propertyId],
     references: [apartments.id],
+  }),
+  rentPayments: many(rentPayments),
+}));
+
+export const rentPaymentsRelations = relations(rentPayments, ({ one }) => ({
+  booking: one(bookings, {
+    fields: [rentPayments.bookingId],
+    references: [bookings.id],
   }),
 }));
 

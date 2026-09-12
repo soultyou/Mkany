@@ -27,6 +27,19 @@ export interface StudentBooking {
   adminNotes?: string;
   appointmentDate?: string;
   appointmentTime?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  contractDurationMonths?: number;
+  depositAmount?: number;
+  depositStatus?: "unpaid" | "partial" | "paid";
+  depositPaidAt?: string;
+  handoverStatus?: "not_started" | "scheduled" | "completed";
+  handoverDate?: string;
+  subscriptionStatus?: "unpaid" | "pending_review" | "approved" | "rejected";
+  subscriptionAmount?: number;
+  subscriptionReceiptUrl?: string;
+  subscriptionApprovedAt?: string;
+  subscriptionApprovedBy?: string;
   createdAt: string;
   updatedAt: string;
   property?: any;
@@ -218,4 +231,143 @@ export function buildWhatsAppAdminConfirmationUrl(booking: StudentBooking): stri
   const formattedPhone = cleanPhone.startsWith("0") ? `2${cleanPhone}` : cleanPhone.startsWith("20") ? cleanPhone : `20${cleanPhone}`;
 
   return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+}
+
+export interface RentPayment {
+  id: string;
+  bookingId: string;
+  billingPeriod: string;
+  amount: number;
+  dueDate: string;
+  status: "due" | "pending_review" | "paid" | "rejected" | "overdue";
+  receiptImageUrl?: string;
+  paidAt?: string;
+  paymentSource?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * جلب كشف الدفعات الشهرية لحجز معين
+ */
+export async function getRentPaymentsApi(bookingId: string): Promise<RentPayment[]> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/rent-payments`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to fetch rent payments:", err);
+    return [];
+  }
+}
+
+/**
+ * تحديث العقد والدفعة المالية (الوديعة وتواريخ العقد) بواسطة الآدمن
+ */
+export async function updateContractApi(
+  bookingId: string,
+  data: {
+    contractStartDate: string;
+    contractEndDate: string;
+    depositAmount: number;
+    depositStatus: "unpaid" | "partial" | "paid";
+    handoverStatus?: "not_started" | "scheduled" | "completed";
+    handoverDate?: string;
+    subscriptionStatus?: "unpaid" | "pending_review" | "approved" | "rejected";
+  }
+): Promise<StudentBooking | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/contract`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to update contract:", err);
+    return null;
+  }
+}
+
+/**
+ * رفع الطالب لإيصال دفع الشهر
+ */
+export async function uploadRentReceiptApi(
+  bookingId: string,
+  paymentId: string,
+  receiptImageUrl: string
+): Promise<RentPayment | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/upload-receipt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receiptImageUrl }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to upload rent receipt:", err);
+    return null;
+  }
+}
+
+/**
+ * قبول الآدمن لإيصال دفع الشهر
+ */
+export async function approveRentPaymentApi(bookingId: string, paymentId: string): Promise<RentPayment | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/approve`, {
+      method: "POST",
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to approve rent payment:", err);
+    return null;
+  }
+}
+
+/**
+ * رفض الآدمن لإيصال دفع الشهر
+ */
+export async function rejectRentPaymentApi(bookingId: string, paymentId: string): Promise<RentPayment | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/reject`, {
+      method: "POST",
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to reject rent payment:", err);
+    return null;
+  }
+}
+
+/**
+ * تسجيل الآدمن لعملية دفع يدوي للشهر
+ */
+export async function recordManualRentPaymentApi(
+  bookingId: string,
+  paymentId: string,
+  data: {
+    amount: number;
+    paidAt: string;
+    paymentSource: string;
+  }
+): Promise<RentPayment | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/manual-pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to record manual payment:", err);
+    return null;
+  }
 }

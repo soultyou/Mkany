@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, boolean, uniqueIndex, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -14,15 +14,20 @@ import { z } from "zod";
  */
 export const users = pgTable("users", {
   id: varchar("id", { length: 128 }).primaryKey(),
-  clerkUserId: varchar("clerk_user_id", { length: 128 }).unique(),
+  clerkUserId: varchar("clerk_user_id", { length: 128 }),
   fullName: text("full_name").notNull(),
   nationalId: varchar("national_id", { length: 14 }).notNull(),
   phoneNumber: varchar("phone_number", { length: 20 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
+  email: varchar("email", { length: 255 }).notNull(),
   university: varchar("university", { length: 150 }).notNull(),
   avatarUrl: text("avatar_url"),
   role: varchar("role", { length: 50 }).default("student").notNull(),
   isVerified: boolean("is_verified").default(false).notNull(),
+  subscriptionStatus: varchar("subscription_status", { length: 50 }).default("unpaid").notNull(),
+  subscriptionAmount: integer("subscription_amount").default(1200).notNull(),
+  subscriptionReceiptUrl: text("subscription_receipt_url"),
+  subscriptionApprovedAt: timestamp("subscription_approved_at"),
+  subscriptionApprovedBy: varchar("subscription_approved_by", { length: 128 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => {

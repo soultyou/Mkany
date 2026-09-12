@@ -37,6 +37,7 @@ import {
   Activity,
   CheckSquare,
   FileText,
+  Image as ImageIcon,
   Headphones
 } from "lucide-react";
 import { 
@@ -91,7 +92,13 @@ import {
   getAdminBookingsApi, 
   updateBookingStatusApi, 
   StudentBooking,
-  buildWhatsAppAdminConfirmationUrl
+  buildWhatsAppAdminConfirmationUrl,
+  RentPayment,
+  getRentPaymentsApi,
+  updateContractApi,
+  approveRentPaymentApi,
+  rejectRentPaymentApi,
+  recordManualRentPaymentApi
 } from "@/lib/bookings-store";
 import { useAuth } from "@/components/auth/clerk-auth";
 import { StandardModal } from "@/components/ui/StandardModal";
@@ -169,6 +176,7 @@ export function AdminInspectionPortal({
   // بيانات الحجوزات وإيصالات الدفع
   const [bookings, setBookings] = useState<StudentBooking[]>([]);
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
+  const [expandedLedgerBookingId, setExpandedLedgerBookingId] = useState<string | null>(null);
 
   // مؤشرات الحجوزات
   const totalBookings = bookings.length;
@@ -1616,8 +1624,29 @@ export function AdminInspectionPortal({
                         <MessageCircle size={14} />
                         واتساب التأكيد
                       </a>
+
+                      {b.status === "confirmed" && (
+                        <button
+                          onClick={() => setExpandedLedgerBookingId(expandedLedgerBookingId === b.id ? null : b.id)}
+                          className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-500/20"
+                          data-testid={`btn-admin-toggle-ledger-${b.id}`}
+                        >
+                          {expandedLedgerBookingId === b.id ? "إغلاق الدفتر" : "إدارة العقد والدفتر المالي 📜"}
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {expandedLedgerBookingId === b.id && (
+                    <AdminBookingRentLedger
+                      booking={b}
+                      openToast={openToast}
+                      onRefresh={() => {
+                        // Triggers the overall data refresh for bookings
+                        getAdminBookingsApi().then((data) => setBookings(data)).catch(console.error);
+                      }}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -2988,6 +3017,430 @@ export function AdminInspectionPortal({
             )}
           </div>
         ) : null}
+      </StandardModal>
+    </div>
+  );
+}
+
+interface AdminBookingRentLedgerProps {
+  booking: StudentBooking;
+  openToast: (msg: string) => void;
+  onRefresh?: () => void;
+}
+
+export function AdminBookingRentLedger({ booking, openToast, onRefresh }: AdminBookingRentLedgerProps) {
+  const [payments, setPayments] = useState<RentPayment[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // Contract parameters form
+  const [startDate, setStartDate] = useState(booking.contractStartDate || "");
+  const [endDate, setEndDate] = useState(booking.contractEndDate || "");
+  const [depositAmount, setDepositAmount] = useState(booking.depositAmount || 0);
+  const [depositStatus, setDepositStatus] = useState<"unpaid" | "partial" | "paid">(booking.depositStatus || "unpaid");
+  const [handoverStatus, setHandoverStatus] = useState<"not_started" | "scheduled" | "completed">(booking.handoverStatus || "not_started");
+  const [handoverDate, setHandoverDate] = useState(booking.handoverDate || "");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<"unpaid" | "pending_review" | "approved" | "rejected">(booking.subscriptionStatus || "unpaid");
+  const [savingContract, setSavingContract] = useState(false);
+
+  // Manual payment form state
+  const [manualPayingPaymentId, setManualPayingPaymentId] = useState<string | null>(null);
+  const [manualAmount, setManualAmount] = useState<number>(0);
+  const [manualPaidAt, setManualPaidAt] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [manualSource, setManualSource] = useState<string>("فودافون كاش");
+  const [submittingManual, setSubmittingManual] = useState(false);
+
+  // Receipt modal
+  const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
+
+  const fetchPayments = async () => {
+    setLoading(true);
+    try {
+      const list = await getRentPaymentsApi(booking.id);
+      setPayments(list);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayments();
+  }, [booking.id]);
+
+  const handleSaveContract = async () => {
+    if (!startDate || !endDate) {
+      openToast("يرجى تحديد تاريخ بداية ونهاية العقد لتوليد الدفعات");
+      return;
+    }
+    setSavingContract(true);
+    try {
+      const res = await updateContractApi(booking.id, {
+        contractStartDate: startDate,
+        contractEndDate: endDate,
+        depositAmount: Number(depositAmount),
+        depositStatus,
+        handoverStatus,
+        handoverDate,
+        subscriptionStatus,
+      });
+
+      if (!res) {
+        throw new Error("فشل تحديث العقد");
+      }
+
+      openToast("تم حفظ العقد وتحديث جدول الدفعات بنجاح");
+      fetchPayments();
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error(err);
+      openToast(err.message || "حدث خطأ أثناء حفظ العقد");
+    } finally {
+      setSavingContract(false);
+    }
+  };
+
+  const handleApprove = async (paymentId: string) => {
+    try {
+      const res = await approveRentPaymentApi(booking.id, paymentId);
+      if (res) {
+        openToast("تم تأكيد واعتماد دفعة الإيجار");
+        fetchPayments();
+      } else {
+        openToast("فشل اعتماد الدفعة");
+      }
+    } catch (err) {
+      console.error(err);
+      openToast("فشل اعتماد الدفعة");
+    }
+  };
+
+  const handleReject = async (paymentId: string) => {
+    try {
+      const res = await rejectRentPaymentApi(booking.id, paymentId);
+      if (res) {
+        openToast("تم رفض الإيصال وطلب إعادة الرفع من الطالب");
+        fetchPayments();
+      } else {
+        openToast("فشل رفض الدفعة");
+      }
+    } catch (err) {
+      console.error(err);
+      openToast("فشل رفض الدفعة");
+    }
+  };
+
+  const handleManualPaySubmit = async (paymentId: string) => {
+    setSubmittingManual(true);
+    try {
+      const res = await recordManualRentPaymentApi(booking.id, paymentId, {
+        amount: Number(manualAmount),
+        paidAt: manualPaidAt,
+        paymentSource: manualSource,
+      });
+
+      if (res) {
+        openToast("تم تسجيل الدفع اليدوي بنجاح بالدفتر المالي");
+        setManualPayingPaymentId(null);
+        fetchPayments();
+      } else {
+        openToast("فشل تسجيل الدفع اليدوي");
+      }
+    } catch (err) {
+      console.error(err);
+      openToast("فشل تسجيل الدفع اليدوي");
+    } finally {
+      setSubmittingManual(false);
+    }
+  };
+
+  // Get deposit status badges
+  const getDepositBadge = (status: string) => {
+    switch (status) {
+      case "paid":
+        return <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مدفوع بالكامل</span>;
+      case "partial":
+        return <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مدفوع جزئيًا</span>;
+      default:
+        return <span className="bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">غير مدفوع</span>;
+    }
+  };
+
+  // Status mapping for monthly payments
+  const getPaymentStatusBadge = (status: string) => {
+    switch (status) {
+      case "paid":
+        return <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs px-2.5 py-1 rounded-lg font-bold">مدفوع</span>;
+      case "pending_review":
+        return <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs px-2.5 py-1 rounded-lg font-bold animate-pulse">قيد المراجعة</span>;
+      case "rejected":
+        return <span className="bg-rose-500/15 text-rose-700 dark:text-rose-400 text-xs px-2.5 py-1 rounded-lg font-bold">مرفوض الإيصال</span>;
+      case "overdue":
+        return <span className="bg-red-600/15 text-red-600 dark:text-red-400 text-xs px-2.5 py-1 rounded-lg font-bold animate-pulse">متأخر</span>;
+      default:
+        return <span className="bg-muted text-muted-foreground text-xs px-2.5 py-1 rounded-lg font-medium">مستحق</span>;
+    }
+  };
+
+  return (
+    <div className="mt-4 p-5 border border-border rounded-2xl bg-muted/15 space-y-5 text-right w-full lg:col-span-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3 gap-2">
+        <h4 className="text-sm font-extrabold text-foreground">الدفتر المالي المركزي للوحدة السكنية 🏛️</h4>
+        <span className="text-xs text-muted-foreground font-mono">طالب الحجز: {booking.studentName} | كود الحجز: {booking.bookingCode}</span>
+      </div>
+
+      {/* Contract dates editor form */}
+      <div className="bg-background border border-border p-4 rounded-2xl space-y-4">
+        <h5 className="text-xs font-bold text-foreground">تفاصيل عقد السكن ومبلغ وديعة الاستلام:</h5>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">تاريخ بداية العقد</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">تاريخ نهاية العقد</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">قيمة وديعة التأمين (الاستردادية)</label>
+            <input
+              type="number"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(Number(e.target.value))}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-bold"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">حالة سداد وديعة التأمين</label>
+            <select
+              value={depositStatus}
+              onChange={(e) => setDepositStatus(e.target.value as any)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-bold"
+            >
+              <option value="unpaid">غير مدفوعة (معلقة)</option>
+              <option value="partial">مدفوعة جزئياً</option>
+              <option value="paid">مدفوعة بالكامل ✅</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Row 2: Mkany Subscription & Handover Status */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-border/30">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">المرحلة ١: حالة اشتراك مكاني (1200 ج.م)</label>
+            <select
+              value={subscriptionStatus}
+              onChange={(e) => setSubscriptionStatus(e.target.value as any)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-bold"
+            >
+              <option value="unpaid">غير مدفوع</option>
+              <option value="pending_review">قيد المراجعة ⏳</option>
+              <option value="approved">مقبول ومفعّل Pro ⭐</option>
+              <option value="rejected">مرفوض</option>
+            </select>
+            {booking.receiptImageUrl && (
+              <button
+                type="button"
+                onClick={() => setPreviewReceiptUrl(booking.receiptImageUrl || null)}
+                className="text-[10px] text-primary hover:underline mt-1 font-bold block text-right"
+              >
+                🔍 معاينة إيصال الاشتراك المرفوع
+              </button>
+            )}
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">المرحلة ٢: حالة تسليم الشقة والمفاتيح</label>
+            <select
+              value={handoverStatus}
+              onChange={(e) => setHandoverStatus(e.target.value as any)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-bold"
+            >
+              <option value="not_started">لم تبدأ بعد</option>
+              <option value="scheduled">مجدولة للتسليم 📅</option>
+              <option value="completed">تم تسليم المفاتيح بنجاح 🔑</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">تاريخ تسليم الشقة الفعلي</label>
+            <input
+              type="date"
+              value={handoverDate}
+              onChange={(e) => setHandoverDate(e.target.value)}
+              className="w-full text-xs bg-muted border border-border rounded-xl p-2 font-mono"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-border/50">
+          <button
+            onClick={handleSaveContract}
+            disabled={savingContract}
+            className="text-xs bg-primary hover:bg-primary-hover text-white font-extrabold px-4 py-2 rounded-xl shadow"
+          >
+            {savingContract ? "جاري الحفظ..." : "حفظ تفاصيل العقد وتوليد الدفعات المركزية 🔄"}
+          </button>
+        </div>
+      </div>
+
+      {/* Render monthly rent schedule */}
+      {loading ? (
+        <p className="text-xs text-muted-foreground text-center">جاري تحميل كشف الإيجارات...</p>
+      ) : (
+        <div className="space-y-3">
+          <h5 className="text-xs font-bold text-foreground">جدول الدفعات وإيصالات المراجعة بالدفتر:</h5>
+
+          {payments.length === 0 ? (
+            <p className="text-xs text-muted-foreground">لا يوجد دفعات نشطة. يرجى ملء تواريخ العقد أعلاه لحفظ وتوليد الدفعات.</p>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-border bg-background">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-right">
+                  <thead className="bg-muted/50 border-b border-border text-xs text-muted-foreground">
+                    <tr>
+                      <th className="p-3">الشهر</th>
+                      <th className="p-3">المبلغ المستحق</th>
+                      <th className="p-3">تاريخ الاستحقاق</th>
+                      <th className="p-3">الحالة</th>
+                      <th className="p-3 text-center">الإجراء المالي</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {payments.map((p) => (
+                      <tr key={p.id} className="hover:bg-muted/5">
+                        <td className="p-3 font-semibold text-xs">{p.billingPeriod}</td>
+                        <td className="p-3 font-bold text-xs text-primary">{p.amount} جنيه</td>
+                        <td className="p-3 text-xs font-mono">{p.dueDate}</td>
+                        <td className="p-3">{getPaymentStatusBadge(p.status)}</td>
+                        <td className="p-3">
+                          <div className="flex flex-col gap-2 items-center justify-center">
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                              {p.receiptImageUrl && (
+                                <button
+                                  onClick={() => setPreviewReceiptUrl(p.receiptImageUrl || null)}
+                                  className="text-[10px] bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded-lg border border-border font-medium flex items-center gap-1"
+                                >
+                                  <ImageIcon size={10} />
+                                  معاينة الإيصال
+                                </button>
+                              )}
+
+                              {p.status === "pending_review" && (
+                                <>
+                                  <button
+                                    onClick={() => handleApprove(p.id)}
+                                    className="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg font-bold"
+                                  >
+                                    قبول واعتماد
+                                  </button>
+                                  <button
+                                    onClick={() => handleReject(p.id)}
+                                    className="text-[10px] bg-rose-600 hover:bg-rose-700 text-white px-2 py-1 rounded-lg font-bold"
+                                  >
+                                    رفض
+                                  </button>
+                                </>
+                              )}
+
+                              {p.status !== "paid" && (
+                                <button
+                                  onClick={() => {
+                                    setManualPayingPaymentId(manualPayingPaymentId === p.id ? null : p.id);
+                                    setManualAmount(p.amount);
+                                  }}
+                                  className="text-[10px] bg-purple-600 hover:bg-purple-700 text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-0.5"
+                                >
+                                  تسجيل الدفع يدويًا 💳
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Manual payment drawer */}
+                            {manualPayingPaymentId === p.id && (
+                              <div className="w-full max-w-sm border border-purple-500/20 bg-purple-500/5 p-3 rounded-xl space-y-2 mt-2 text-right">
+                                <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 block">تسجيل سداد يدوي (بدون إيصال طالب):</span>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <label className="text-[8px] text-muted-foreground block">القيمة الفعلية</label>
+                                    <input
+                                      type="number"
+                                      value={manualAmount}
+                                      onChange={(e) => setManualAmount(Number(e.target.value))}
+                                      className="w-full text-[10px] bg-background border border-border p-1 rounded font-bold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[8px] text-muted-foreground block">وسيلة الدفع</label>
+                                    <input
+                                      type="text"
+                                      value={manualSource}
+                                      onChange={(e) => setManualSource(e.target.value)}
+                                      placeholder="مثال: كاش للآدمن"
+                                      className="w-full text-[10px] bg-background border border-border p-1 rounded font-bold"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[8px] text-muted-foreground block">تاريخ الدفع</label>
+                                    <input
+                                      type="date"
+                                      value={manualPaidAt}
+                                      onChange={(e) => setManualPaidAt(e.target.value)}
+                                      className="w-full text-[10px] bg-background border border-border p-1 rounded font-mono"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex justify-end gap-2 pt-1">
+                                  <button
+                                    onClick={() => setManualPayingPaymentId(null)}
+                                    className="text-[8px] bg-background border px-2 py-1 rounded"
+                                  >
+                                    إلغاء
+                                  </button>
+                                  <button
+                                    onClick={() => handleManualPaySubmit(p.id)}
+                                    disabled={submittingManual}
+                                    className="text-[8px] bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded font-bold"
+                                  >
+                                    {submittingManual ? "جاري..." : "تأكيد الدفع"}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Preview rent receipt modal */}
+      <StandardModal
+        isOpen={Boolean(previewReceiptUrl)}
+        onClose={() => setPreviewReceiptUrl(null)}
+        maxWidthClassName="max-w-lg"
+        title="معاينة إيصال الدفع الشهري المرفوع"
+        closeButtonAriaLabel="إغلاق معاينة الإيصال"
+      >
+        <div className="max-h-[70vh] overflow-auto rounded-2xl border border-border">
+          {previewReceiptUrl && (
+            <img src={previewReceiptUrl} alt="إيصال" className="w-full object-contain mx-auto" />
+          )}
+        </div>
       </StandardModal>
     </div>
   );

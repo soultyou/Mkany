@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   GraduationCap, 
   CreditCard, 
@@ -29,10 +29,11 @@ import {
   LifeBuoy
 } from "lucide-react";
 import { useAuth, EGYPTIAN_UNIVERSITIES, SignInButton } from "@/components/auth/clerk-auth";
-import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
+import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl, RentPayment, getRentPaymentsApi, uploadRentReceiptApi } from "@/lib/bookings-store";
 import { getStudentFavoritesApi, removeFavoriteApi, StudentFavorite } from "@/lib/favorites-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 import { SupportCenter } from "@/components/support/SupportCenter";
+import { uploadSingleImageApi } from "@/lib/api-client";
 
 interface StudentDashboardProps {
   openToast: (msg: string) => void;
@@ -150,6 +151,7 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
   // 3. جلب حجوزات هذا الطالب حصرياً من قاعدة البيانات
   const [bookings, setBookings] = useState<StudentBooking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [expandedLedgerBookingId, setExpandedLedgerBookingId] = useState<string | null>(null);
 
   const fetchFavorites = () => {
     setIsLoadingFavorites(true);
@@ -456,6 +458,17 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
                           </button>
                         )}
 
+                        {booking.status === "confirmed" && (
+                          <button
+                            onClick={() => setExpandedLedgerBookingId(expandedLedgerBookingId === booking.id ? null : booking.id)}
+                            className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
+                            data-testid={`btn-toggle-ledger-${booking.id}`}
+                          >
+                            <FileText size={14} />
+                            {expandedLedgerBookingId === booking.id ? "إغلاق الدفتر المالي وعقد الإيجار" : "عرض الدفتر المالي وعقد الإيجار"}
+                          </button>
+                        )}
+
                         <a
                           href={buildWhatsAppBookingUrl(booking)}
                           target="_blank"
@@ -467,6 +480,10 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
                           تواصل مع إدارة مكاني على واتساب (01055332242)
                         </a>
                       </div>
+
+                      {expandedLedgerBookingId === booking.id && (
+                        <BookingRentLedger booking={booking} openToast={openToast} />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -862,6 +879,20 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
                           {user?.phoneNumber || "نشط"}
                         </span>
                       </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">فئة العضوية بالموقع:</span>
+                        <span className="font-bold">
+                          {user?.subscriptionStatus === "approved" ? (
+                            <span className="bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-full font-black tracking-wider flex items-center gap-0.5">
+                              ⭐ باقة Pro نشطة
+                            </span>
+                          ) : (
+                            <span className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                              عضوية عادية
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     </div>
                   </>
                 );
@@ -917,6 +948,341 @@ export function StudentDashboard({ openToast, onExploreProperties, onViewPropert
               />
             )}
           </div>
+        </div>
+      </StandardModal>
+     </div>
+   );
+ }
+
+interface BookingRentLedgerProps {
+  booking: StudentBooking;
+  openToast: (msg: string) => void;
+}
+
+export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps) {
+  const [payments, setPayments] = useState<RentPayment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploadingPaymentId, setUploadingPaymentId] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null);
+
+  const fetchPayments = async () => {
+    setLoading(true);
+    const list = await getRentPaymentsApi(booking.id);
+    setPayments(list);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchPayments();
+  }, [booking.id]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const handleUploadSubmit = async (paymentId: string) => {
+    if (!file) {
+      openToast("يرجى اختيار صورة الإيصال أولاً");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // 1. Upload file to storage
+      const uploadRes = await uploadSingleImageApi(file);
+      if (!uploadRes || !uploadRes.url) {
+        throw new Error("فشل رفع الصورة السحابية");
+      }
+      
+      // 2. Save receipt record in database
+      const updated = await uploadRentReceiptApi(booking.id, paymentId, uploadRes.url);
+      if (!updated) {
+        throw new Error("فشل حفظ إيصال الدفع");
+      }
+
+      openToast("تم رفع الإيصال بنجاح وهو قيد المراجعة الآن");
+      setFile(null);
+      setUploadingPaymentId(null);
+      fetchPayments();
+    } catch (err: any) {
+      console.error(err);
+      openToast(err.message || "حدث خطأ أثناء رفع الإيصال");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-4 p-6 border border-dashed border-border rounded-2xl bg-muted/20 text-center text-xs text-muted-foreground">
+        جاري تحميل الدفتر المالي وعقد الإيجار...
+      </div>
+    );
+  }
+
+  const hasContract = Boolean(booking.contractStartDate && booking.contractEndDate);
+
+  if (!hasContract) {
+    return (
+      <div className="mt-4 p-6 border border-dashed border-yellow-500/20 rounded-2xl bg-yellow-500/5 text-right">
+        <div className="flex gap-2 items-start">
+          <AlertCircle className="text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" size={16} />
+          <div>
+            <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-300 font-bold">بانتظار توثيق عقد الإيجار</h4>
+            <p className="text-xs text-yellow-700 dark:text-yellow-400/80 mt-1 leading-relaxed">
+              لم يتم تفعيل مدة العقد أو الدفتر المالي بعد. ستقوم الإدارة بتسجيل تفاصيل العقد (تاريخ البدء والانتهاء ومبلغ التأمين) عند تسليمك الوحدة وتوقيع العقد الفعلي.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Get deposit status badges
+  const getDepositBadge = (status: string) => {
+    switch (status) {
+      case "paid":
+        return <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مدفوع بالكامل</span>;
+      case "partial":
+        return <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مدفوع جزئيًا</span>;
+      default:
+        return <span className="bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">غير مدفوع</span>;
+    }
+  };
+
+  // Status mapping for monthly payments
+  const getPaymentStatusBadge = (status: string) => {
+    switch (status) {
+      case "paid":
+        return <span className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs px-2.5 py-1 rounded-lg font-bold">مدفوع</span>;
+      case "pending_review":
+        return <span className="bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs px-2.5 py-1 rounded-lg font-bold">قيد المراجعة</span>;
+      case "rejected":
+        return <span className="bg-rose-500/15 text-rose-700 dark:text-rose-400 text-xs px-2.5 py-1 rounded-lg font-bold">مرفوض - يرجى الرفع مجدداً</span>;
+      case "overdue":
+        return <span className="bg-red-600/15 text-red-600 dark:text-red-400 text-xs px-2.5 py-1 rounded-lg font-bold animate-pulse">متأخر</span>;
+      default:
+        return <span className="bg-muted text-muted-foreground text-xs px-2.5 py-1 rounded-lg font-medium">مستحق</span>;
+    }
+  };
+
+  return (
+    <div className="mt-4 p-6 border border-border rounded-2xl bg-muted/10 space-y-6 text-right">
+      <div className="flex items-center justify-between border-b border-border pb-3">
+        <h4 className="text-base font-bold text-foreground">الدفتر المالي وعقد الإيجار الموثق 📜</h4>
+        <span className="text-xs text-muted-foreground font-mono">كود الحجز: {booking.bookingCode}</span>
+      </div>
+
+      {/* Separator / Explanation of Stages */}
+      <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 text-xs text-primary leading-relaxed">
+        <h5 className="font-bold mb-1.5 flex items-center gap-1">
+          <AlertCircle size={14} />
+          توضيح النظام المالي لمنصة مكاني (٣ مراحل منفصلة تماماً):
+        </h5>
+        <ul className="list-decimal list-inside space-y-1 text-[11px] text-muted-foreground">
+          <li><strong className="text-foreground">اشتراك مكاني (1200 ج.م):</strong> رسوم توثيق العقد والخدمة وتفعيل الحساب كـ Pro (تُدفع مرة واحدة للمنصة لتفعيل العقد).</li>
+          <li><strong className="text-foreground">مبلغ تأمين الوحدة (الوديعة):</strong> يُدفع للمالك كضمان عند استلام السكن (مسترد بالكامل عند الإخلاء).</li>
+          <li><strong className="text-foreground">الإيجار الشهري المتكرر:</strong> يُدفع شهرياً للمالك مباشرة، ويتم توثيق ورفع إيصال كل شهر في الجدول أدناه.</li>
+        </ul>
+      </div>
+
+      {/* Stages Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Stage 1: Mkany Subscription */}
+        <div className="bg-background border border-border p-4 rounded-2xl relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">المرحلة ١: اشتراك مكاني</span>
+              <strong className="text-foreground text-sm font-extrabold">1200 جنيه</strong>
+            </div>
+            <h5 className="text-xs font-bold text-foreground">رسوم التوثيق وتفعيل الحساب Pro</h5>
+            <p className="text-[11px] text-muted-foreground mt-1">يُدفع للمنصة مرة واحدة لتفعيل العقد وتأكيد الهوية كطالب Pro نشط.</p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground font-bold">حالة الاشتراك:</span>
+            {booking.subscriptionStatus === "approved" ? (
+              <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مقبول ومفعّل Pro ✅</span>
+            ) : booking.subscriptionStatus === "pending_review" ? (
+              <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">قيد المراجعة</span>
+            ) : booking.subscriptionStatus === "rejected" ? (
+              <span className="bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مرفوض</span>
+            ) : (
+              <span className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">غير مدفوع</span>
+            )}
+          </div>
+        </div>
+
+        {/* Stage 2: Security Deposit */}
+        <div className="bg-background border border-border p-4 rounded-2xl relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[10px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">المرحلة ٢: مبلغ التأمين</span>
+              <strong className="text-foreground text-sm font-extrabold">{booking.depositAmount || 0} جنيه</strong>
+            </div>
+            <h5 className="text-xs font-bold text-foreground">الوديعة المستردة عند استلام المفتاح</h5>
+            <p className="text-[11px] text-muted-foreground mt-1">يُسجل ويسدد عند المعاينة النهائية للموقع وتسليم الشقة.</p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground font-bold">حالة التأمين:</span>
+            {getDepositBadge(booking.depositStatus || "unpaid")}
+          </div>
+        </div>
+
+        {/* Stage 3: Handover & Keys */}
+        <div className="bg-background border border-border p-4 rounded-2xl relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">حالة تسليم الشقة</span>
+              <strong className="text-foreground text-xs font-bold">{booking.handoverDate || "لم يحدد بعد"}</strong>
+            </div>
+            <h5 className="text-xs font-bold text-foreground">تسليم الوحدة والمفاتيح</h5>
+            <p className="text-[11px] text-muted-foreground mt-1">عملية المعاينة واستلام العقار وتوقيع محاضر الاستلام والعيوب.</p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground font-bold">حالة التسليم:</span>
+            {booking.handoverStatus === "completed" ? (
+              <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold">تم الاستلام والمفاتيح بنجاح🔑</span>
+            ) : booking.handoverStatus === "scheduled" ? (
+              <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مجدول للاستلام</span>
+            ) : (
+              <span className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">لم يبدأ بعد</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Contract stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-background border border-border p-3.5 rounded-2xl">
+          <span className="text-[10px] text-muted-foreground block">تاريخ بداية العقد</span>
+          <strong className="text-foreground text-xs font-bold block mt-1">{booking.contractStartDate}</strong>
+        </div>
+        <div className="bg-background border border-border p-3.5 rounded-2xl">
+          <span className="text-[10px] text-muted-foreground block">تاريخ نهاية العقد</span>
+          <strong className="text-foreground text-xs font-bold block mt-1">{booking.contractEndDate}</strong>
+        </div>
+        <div className="bg-background border border-border p-3.5 rounded-2xl">
+          <span className="text-[10px] text-muted-foreground block">مدة السكن</span>
+          <strong className="text-foreground text-xs font-bold block mt-1">{booking.contractDurationMonths} أشهر</strong>
+        </div>
+        <div className="bg-background border border-border p-3.5 rounded-2xl">
+          <span className="text-[10px] text-muted-foreground block">قيمة الوديعة (التأمين)</span>
+          <div className="flex items-center justify-between mt-1">
+            <strong className="text-indigo-600 font-extrabold text-xs">{booking.depositAmount} جنيه</strong>
+            {getDepositBadge(booking.depositStatus || "unpaid")}
+          </div>
+        </div>
+      </div>
+
+      {/* Payments list */}
+      <div className="space-y-3">
+        <h5 className="text-sm font-bold text-foreground">جدول الدفعات الشهرية وإيصالات السداد</h5>
+        
+        {payments.length === 0 ? (
+          <p className="text-xs text-muted-foreground">لا توجد دفعات مسجلة بعد لهذا العقد.</p>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-border bg-background">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-right">
+                <thead className="bg-muted/50 border-b border-border text-xs text-muted-foreground">
+                  <tr>
+                    <th className="p-3">الفترة الإيجارية</th>
+                    <th className="p-3">مبلغ الإيجار</th>
+                    <th className="p-3">تاريخ الاستحقاق</th>
+                    <th className="p-3">الحالة</th>
+                    <th className="p-3 text-center">الإجراء</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {payments.map((p) => (
+                    <tr key={p.id} className="hover:bg-muted/10">
+                      <td className="p-3 font-semibold">{p.billingPeriod}</td>
+                      <td className="p-3 font-bold text-primary">{p.amount} جنيه</td>
+                      <td className="p-3 text-xs font-mono">{p.dueDate}</td>
+                      <td className="p-3">{getPaymentStatusBadge(p.status)}</td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-center gap-2">
+                          {p.receiptImageUrl && (
+                            <button
+                              onClick={() => setViewingReceiptUrl(p.receiptImageUrl || null)}
+                              className="text-xs bg-muted hover:bg-muted/80 text-foreground px-2.5 py-1.5 rounded-xl border border-border font-medium flex items-center gap-1"
+                            >
+                              <ImageIcon size={12} />
+                              عرض الإيصال
+                            </button>
+                          )}
+
+                          {p.status !== "paid" && p.status !== "pending_review" && (
+                            <div className="w-full max-w-[200px]">
+                              {uploadingPaymentId === p.id ? (
+                                <div className="flex flex-col gap-2 p-2 border border-dashed border-primary/30 rounded-xl bg-primary/5 text-right">
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleFileChange}
+                                    className="text-xs w-full"
+                                  />
+                                  {file && (
+                                    <div className="flex gap-2 justify-end mt-1">
+                                      <button
+                                        onClick={() => {
+                                          setFile(null);
+                                          setUploadingPaymentId(null);
+                                        }}
+                                        className="text-[10px] bg-background hover:bg-muted text-muted-foreground border border-border px-2 py-1 rounded-lg font-bold"
+                                      >
+                                        إلغاء
+                                      </button>
+                                      <button
+                                        onClick={() => handleUploadSubmit(p.id)}
+                                        disabled={submitting}
+                                        className="text-[10px] bg-primary hover:bg-primary-hover text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-1"
+                                      >
+                                        {submitting ? "جاري..." : "إرسال"}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setUploadingPaymentId(p.id);
+                                    setFile(null);
+                                  }}
+                                  className="text-xs bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 mx-auto"
+                                >
+                                  <FileText size={12} />
+                                  رفع إيصال الشهر
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* View rent receipt modal */}
+      <StandardModal
+        isOpen={Boolean(viewingReceiptUrl)}
+        onClose={() => setViewingReceiptUrl(null)}
+        maxWidthClassName="max-w-lg"
+        title="إيصال سداد الإيجار الشهري المرفوع"
+        closeButtonAriaLabel="إغلاق معاينة الإيصال"
+      >
+        <div className="max-h-[70vh] overflow-auto rounded-2xl border border-border">
+          {viewingReceiptUrl && (
+            <img src={viewingReceiptUrl} alt="إيصال الإيجار" className="w-full object-contain mx-auto" />
+          )}
         </div>
       </StandardModal>
     </div>

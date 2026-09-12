@@ -27,6 +27,10 @@ export interface StudentUser {
   avatarUrl?: string;
   role: "student" | "owner" | "admin" | "super_admin";
   isVerified: boolean;
+  subscriptionStatus?: "unpaid" | "pending_review" | "approved" | "rejected";
+  subscriptionAmount?: number;
+  subscriptionReceiptUrl?: string;
+  subscriptionApprovedAt?: string;
 }
 
 export function isOnboardingRequired(user: StudentUser | null): boolean {

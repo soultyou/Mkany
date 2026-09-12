@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, bookings, apartments } from "@workspace/db";
+import { db, bookings, apartments, rentPayments, users } from "@workspace/db";
 import { eq, inArray, desc, and, or } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { ensureSeedApartments } from "../lib/seed-apartments";
@@ -12,6 +12,17 @@ const router = Router();
 function formatBooking(b: any) {
   if (!b) return b;
   const images = Array.isArray(b.property?.images) ? b.property.images : [];
+  
+  // Calculate duration if dates exist
+  let contractDurationMonths = 0;
+  if (b.contractStartDate && b.contractEndDate) {
+    const start = new Date(b.contractStartDate);
+    const end = new Date(b.contractEndDate);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+      contractDurationMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+    }
+  }
+
   return {
     id: b.id,
     bookingCode: b.bookingCode,
@@ -36,10 +47,24 @@ function formatBooking(b: any) {
     adminNotes: b.adminNotes,
     appointmentDate: b.appointmentDate,
     appointmentTime: b.appointmentTime,
+    contractStartDate: b.contractStartDate,
+    contractEndDate: b.contractEndDate,
+    contractDurationMonths,
+    depositAmount: b.depositAmount || 0,
+    depositStatus: b.depositStatus || "unpaid",
+    depositPaidAt: b.depositPaidAt,
+    handoverStatus: b.handoverStatus || "not_started",
+    handoverDate: b.handoverDate,
+    subscriptionStatus: b.subscriptionStatus || "unpaid",
+    subscriptionAmount: b.subscriptionAmount || 1200,
+    subscriptionReceiptUrl: b.subscriptionReceiptUrl || b.receiptImageUrl,
+    subscriptionApprovedAt: b.subscriptionApprovedAt,
+    subscriptionApprovedBy: b.subscriptionApprovedBy,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
     property: b.property,
     student: b.student,
+    rentPayments: b.rentPayments || [],
   };
 }
 
@@ -206,12 +231,8 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
     const validPaymentMethods = ["vodafone_cash", "instapay", "bank_transfer"];
     const finalPaymentMethod = validPaymentMethods.includes(paymentMethod) ? paymentMethod : "vodafone_cash";
 
-    // Server determines payment amount from property pricePerMonth to prevent price manipulation
-    const finalPaymentAmount = property.pricePerMonth && property.pricePerMonth > 0 ? property.pricePerMonth : 0;
-    if (finalPaymentAmount <= 0) {
-      res.status(400).json({ error: "Bad Request", message: "قيمة إيجار العقار غير صالحة للحجز" });
-      return;
-    }
+    // Set Mkany subscription amount = 1200 EGP as booking paymentAmount and populate subscription fields
+    const finalPaymentAmount = 1200;
 
     const newId = `bkg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -230,9 +251,22 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       appointmentDate: typeof appointmentDate === "string" && appointmentDate.trim() ? appointmentDate.trim() : null,
       appointmentTime: typeof appointmentTime === "string" && appointmentTime.trim() ? appointmentTime.trim() : null,
       status: "pending_review",
+      subscriptionStatus: "pending_review",
+      subscriptionAmount: 1200,
+      subscriptionReceiptUrl: receiptImageUrl.trim(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
+
+    // Update user-level subscription state to pending_review
+    await db.update(users)
+      .set({
+        subscriptionStatus: "pending_review",
+        subscriptionAmount: 1200,
+        subscriptionReceiptUrl: receiptImageUrl.trim(),
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, studentId));
 
     // Sync apartment status in database
     await syncApartmentStatus(parsedPropertyId);
@@ -394,12 +428,19 @@ router.get("/:id", requireAuth, async (req: Request, res: Response) => {
 router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
-    const { status, adminNotes, appointmentDate, appointmentTime } = req.body;
-
-    if (!["pending_review", "confirmed", "rejected"].includes(status)) {
-      res.status(400).json({ error: "Bad Request", message: "Invalid booking status" });
-      return;
-    }
+    const { 
+      status, 
+      adminNotes, 
+      appointmentDate, 
+      appointmentTime,
+      subscriptionStatus,
+      handoverStatus,
+      handoverDate,
+      depositStatus,
+      depositAmount,
+      contractStartDate,
+      contractEndDate
+    } = req.body;
 
     const existing = await db.query.bookings.findFirst({
       where: eq(bookings.id, id),
@@ -411,9 +452,25 @@ router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), 
     }
 
     const updateData: Record<string, any> = {
-      status,
       updatedAt: new Date(),
     };
+
+    if (status) {
+      if (!["pending_review", "confirmed", "rejected"].includes(status)) {
+        res.status(400).json({ error: "Bad Request", message: "Invalid booking status" });
+        return;
+      }
+      updateData.status = status;
+
+      // If booking status is approved/confirmed, auto-approve subscription if not rejected/approved
+      if (status === "confirmed" && (!subscriptionStatus || subscriptionStatus === "approved")) {
+        updateData.subscriptionStatus = "approved";
+        updateData.subscriptionApprovedAt = new Date();
+        updateData.subscriptionApprovedBy = req.dbUser!.id;
+      } else if (status === "rejected") {
+        updateData.subscriptionStatus = "rejected";
+      }
+    }
 
     if (typeof adminNotes === "string") {
       updateData.adminNotes = adminNotes;
@@ -427,21 +484,462 @@ router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), 
       updateData.appointmentTime = appointmentTime.trim() || null;
     }
 
+    // subscriptionStatus
+    if (subscriptionStatus) {
+      if (!["unpaid", "pending_review", "approved", "rejected"].includes(subscriptionStatus)) {
+        res.status(400).json({ error: "Bad Request", message: "Invalid subscription status" });
+        return;
+      }
+      updateData.subscriptionStatus = subscriptionStatus;
+      if (subscriptionStatus === "approved") {
+        updateData.subscriptionApprovedAt = new Date();
+        updateData.subscriptionApprovedBy = req.dbUser!.id;
+      }
+    }
+
+    // handoverStatus
+    if (handoverStatus) {
+      if (!["not_started", "scheduled", "completed"].includes(handoverStatus)) {
+        res.status(400).json({ error: "Bad Request", message: "Invalid handover status" });
+        return;
+      }
+      updateData.handoverStatus = handoverStatus;
+      if (handoverStatus === "completed" && !updateData.handoverDate) {
+        updateData.handoverDate = new Date().toISOString().split("T")[0];
+      }
+    }
+
+    if (typeof handoverDate === "string") {
+      updateData.handoverDate = handoverDate.trim() || null;
+    }
+
+    // depositStatus
+    if (depositStatus) {
+      if (!["unpaid", "partial", "paid"].includes(depositStatus)) {
+        res.status(400).json({ error: "Bad Request", message: "Invalid deposit status" });
+        return;
+      }
+      updateData.depositStatus = depositStatus;
+      if (depositStatus === "paid") {
+        updateData.depositPaidAt = new Date();
+      }
+    }
+
+    // depositAmount
+    if (typeof depositAmount === "number") {
+      updateData.depositAmount = depositAmount;
+    }
+
+    // contract dates
+    if (typeof contractStartDate === "string") {
+      updateData.contractStartDate = contractStartDate.trim() || null;
+    }
+    if (typeof contractEndDate === "string") {
+      updateData.contractEndDate = contractEndDate.trim() || null;
+    }
+
+    // Update DB
     await db.update(bookings)
       .set(updateData)
       .where(eq(bookings.id, id));
+
+    // If subscription became approved, also update the student user's Pro state!
+    const finalSubscriptionStatus = updateData.subscriptionStatus || existing.subscriptionStatus;
+    if (finalSubscriptionStatus === "approved") {
+      await db.update(users)
+        .set({
+          subscriptionStatus: "approved",
+          subscriptionApprovedAt: new Date(),
+          subscriptionApprovedBy: req.dbUser!.id,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, existing.studentId));
+    } else if (finalSubscriptionStatus === "rejected") {
+      await db.update(users)
+        .set({
+          subscriptionStatus: "rejected",
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, existing.studentId));
+    }
 
     // Sync apartment status in database
     await syncApartmentStatus(existing.propertyId);
 
     const updated = await db.query.bookings.findFirst({
       where: eq(bookings.id, id),
-      with: { property: true, student: true },
+      with: { property: true, student: true, rentPayments: true },
     });
 
     res.json(formatBooking(updated || existing));
   } catch (error) {
     req.log.error({ error }, "Failed to update booking status");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Dynamic overdue resolution helper
+function mapOverdueStatus(p: any) {
+  if (!p) return p;
+  if (p.status === "due") {
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (p.dueDate && p.dueDate < todayStr) {
+      return { ...p, status: "overdue" };
+    }
+  }
+  return p;
+}
+
+/**
+ * GET /api/bookings/:bookingId/rent-payments
+ */
+router.get("/:bookingId/rent-payments", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const bookingId = req.params.bookingId;
+    const userRole = (req as any).user?.role;
+    const userId = (req as any).user?.id;
+
+    const booking = await db.query.bookings.findFirst({
+      where: eq(bookings.id, bookingId),
+    });
+
+    if (!booking) {
+      res.status(404).json({ error: "Not Found", message: "Booking not found" });
+      return;
+    }
+
+    // Authz/IDOR check
+    if (userRole === "student" && booking.studentId !== userId) {
+      res.status(403).json({ error: "Forbidden", message: "غير مصرح لك بالوصول لبيانات هذا الحجز" });
+      return;
+    }
+
+    if (userRole === "owner") {
+      res.status(403).json({ error: "Forbidden", message: "غير مصرح لملاك الوحدات بالوصول للبيانات المالية للطلاب" });
+      return;
+    }
+
+    const payments = await db.query.rentPayments.findMany({
+      where: eq(rentPayments.bookingId, bookingId),
+      orderBy: [desc(rentPayments.dueDate)],
+    });
+
+    res.json(payments.map(mapOverdueStatus));
+  } catch (error) {
+    req.log.error({ error }, "Failed to fetch rent payments");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * PATCH /api/bookings/:id/contract
+ * Admin/Super Admin only. Sets contract dates + deposit, and generates rent payments list.
+ */
+router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const { contractStartDate, contractEndDate, depositAmount, depositStatus, handoverStatus, handoverDate } = req.body;
+
+    const booking = await db.query.bookings.findFirst({
+      where: eq(bookings.id, id),
+      with: { property: true },
+    });
+
+    if (!booking) {
+      res.status(404).json({ error: "Not Found", message: "Booking not found" });
+      return;
+    }
+
+    const updateData: Record<string, any> = {
+      updatedAt: new Date(),
+    };
+
+    if (typeof contractStartDate === "string") updateData.contractStartDate = contractStartDate;
+    if (typeof contractEndDate === "string") updateData.contractEndDate = contractEndDate;
+    if (typeof depositAmount === "number") updateData.depositAmount = depositAmount;
+    if (typeof depositStatus === "string") {
+      if (["unpaid", "partial", "paid"].includes(depositStatus)) {
+        updateData.depositStatus = depositStatus;
+        if (depositStatus === "paid") {
+          updateData.depositPaidAt = new Date();
+        }
+      }
+    }
+
+    if (typeof handoverStatus === "string") {
+      if (["not_started", "scheduled", "completed"].includes(handoverStatus)) {
+        updateData.handoverStatus = handoverStatus;
+        if (handoverStatus === "completed" && !handoverDate) {
+          updateData.handoverDate = new Date().toISOString().split("T")[0];
+        }
+      }
+    }
+    if (typeof handoverDate === "string") {
+      updateData.handoverDate = handoverDate;
+    }
+
+    // Update the booking record
+    await db.update(bookings).set(updateData).where(eq(bookings.id, id));
+
+    // Generate monthly rent schedule if start/end dates are provided or updated
+    const finalStart = contractStartDate || booking.contractStartDate;
+    const finalEnd = contractEndDate || booking.contractEndDate;
+
+    if (finalStart && finalEnd) {
+      const start = new Date(finalStart);
+      const end = new Date(finalEnd);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        const propertyPrice = booking.property?.pricePerMonth || booking.paymentAmount || 0;
+        
+        const arabicMonths = [
+          "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+          "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+        ];
+
+        const generatedPayments = [];
+        let current = new Date(start.getFullYear(), start.getMonth(), 1);
+        const limit = new Date(end.getFullYear(), end.getMonth(), 1);
+
+        while (current <= limit) {
+          const year = current.getFullYear();
+          const monthIdx = current.getMonth();
+          const billingPeriod = `${arabicMonths[monthIdx]} ${year}`;
+          const dueDateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-01`;
+
+          generatedPayments.push({
+            id: `rent_${id}_${year}_${monthIdx}`,
+            bookingId: id,
+            billingPeriod,
+            amount: propertyPrice,
+            dueDate: dueDateStr,
+            status: "due",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+          current.setMonth(current.getMonth() + 1);
+        }
+
+        const existingPayments = await db.query.rentPayments.findMany({
+          where: eq(rentPayments.bookingId, id),
+        });
+
+        const paidPeriods = new Set(
+          existingPayments.filter(p => p.status === "paid").map(p => p.billingPeriod)
+        );
+
+        // Clear unpaid ones
+        await db.delete(rentPayments)
+          .where(and(
+            eq(rentPayments.bookingId, id),
+            inArray(rentPayments.status, ["due", "pending_review", "rejected", "overdue"])
+          ));
+
+        // Insert new schedule skipping already paid ones
+        for (const payment of generatedPayments) {
+          if (paidPeriods.has(payment.billingPeriod)) {
+            continue;
+          }
+          await db.insert(rentPayments).values(payment);
+        }
+      }
+    }
+
+    const updated = await db.query.bookings.findFirst({
+      where: eq(bookings.id, id),
+      with: { property: true, student: true, rentPayments: true },
+    });
+
+    res.json(formatBooking(updated || booking));
+  } catch (error) {
+    req.log.error({ error }, "Failed to update contract");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * POST /api/bookings/:bookingId/rent-payments/:paymentId/upload-receipt
+ * Student uploads a receipt for a specific billing month.
+ */
+router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, requireRole(["student"]), async (req: Request, res: Response) => {
+  try {
+    const { bookingId, paymentId } = req.params;
+    const { receiptImageUrl } = req.body;
+    const userId = (req as any).user?.id;
+
+    if (!receiptImageUrl) {
+      res.status(400).json({ error: "Bad Request", message: "يرجى إرفاق صورة الإيصال" });
+      return;
+    }
+
+    const booking = await db.query.bookings.findFirst({
+      where: eq(bookings.id, bookingId),
+    });
+
+    if (!booking) {
+      res.status(404).json({ error: "Not Found", message: "Booking not found" });
+      return;
+    }
+
+    // IDOR checking
+    if (booking.studentId !== userId) {
+      res.status(403).json({ error: "Forbidden", message: "غير مصرح لك برفع إيصال لهذا الحجز" });
+      return;
+    }
+
+    const payment = await db.query.rentPayments.findFirst({
+      where: and(
+        eq(rentPayments.id, paymentId),
+        eq(rentPayments.bookingId, bookingId)
+      ),
+    });
+
+    if (!payment) {
+      res.status(404).json({ error: "Not Found", message: "Rent payment record not found" });
+      return;
+    }
+
+    await db.update(rentPayments)
+      .set({
+        status: "pending_review",
+        receiptImageUrl,
+        paymentSource: "student_upload",
+        updatedAt: new Date(),
+      })
+      .where(eq(rentPayments.id, paymentId));
+
+    const updatedPayment = await db.query.rentPayments.findFirst({
+      where: eq(rentPayments.id, paymentId),
+    });
+
+    res.json(mapOverdueStatus(updatedPayment));
+  } catch (error) {
+    req.log.error({ error }, "Failed to upload rent receipt");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * POST /api/bookings/:bookingId/rent-payments/:paymentId/approve
+ * Admin approves a payment receipt.
+ */
+router.post("/:bookingId/rent-payments/:paymentId/approve", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const { bookingId, paymentId } = req.params;
+    const adminId = (req as any).user?.id || "admin";
+
+    const payment = await db.query.rentPayments.findFirst({
+      where: and(
+        eq(rentPayments.id, paymentId),
+        eq(rentPayments.bookingId, bookingId)
+      ),
+    });
+
+    if (!payment) {
+      res.status(404).json({ error: "Not Found", message: "Rent payment record not found" });
+      return;
+    }
+
+    await db.update(rentPayments)
+      .set({
+        status: "paid",
+        paidAt: new Date(),
+        approvedBy: adminId,
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(rentPayments.id, paymentId));
+
+    const updatedPayment = await db.query.rentPayments.findFirst({
+      where: eq(rentPayments.id, paymentId),
+    });
+
+    res.json(mapOverdueStatus(updatedPayment));
+  } catch (error) {
+    req.log.error({ error }, "Failed to approve rent payment");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * POST /api/bookings/:bookingId/rent-payments/:paymentId/reject
+ * Admin rejects a payment receipt.
+ */
+router.post("/:bookingId/rent-payments/:paymentId/reject", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const { bookingId, paymentId } = req.params;
+
+    const payment = await db.query.rentPayments.findFirst({
+      where: and(
+        eq(rentPayments.id, paymentId),
+        eq(rentPayments.bookingId, bookingId)
+      ),
+    });
+
+    if (!payment) {
+      res.status(404).json({ error: "Not Found", message: "Rent payment record not found" });
+      return;
+    }
+
+    await db.update(rentPayments)
+      .set({
+        status: "rejected",
+        updatedAt: new Date(),
+      })
+      .where(eq(rentPayments.id, paymentId));
+
+    const updatedPayment = await db.query.rentPayments.findFirst({
+      where: eq(rentPayments.id, paymentId),
+    });
+
+    res.json(mapOverdueStatus(updatedPayment));
+  } catch (error) {
+    req.log.error({ error }, "Failed to reject rent payment");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * POST /api/bookings/:bookingId/rent-payments/:paymentId/manual-pay
+ * Admin registers a manual rent payment.
+ */
+router.post("/:bookingId/rent-payments/:paymentId/manual-pay", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const { bookingId, paymentId } = req.params;
+    const { amount, paidAt, paymentSource } = req.body;
+    const adminId = (req as any).user?.id || "admin";
+
+    const payment = await db.query.rentPayments.findFirst({
+      where: and(
+        eq(rentPayments.id, paymentId),
+        eq(rentPayments.bookingId, bookingId)
+      ),
+    });
+
+    if (!payment) {
+      res.status(404).json({ error: "Not Found", message: "Rent payment record not found" });
+      return;
+    }
+
+    await db.update(rentPayments)
+      .set({
+        status: "paid",
+        amount: typeof amount === "number" ? amount : payment.amount,
+        paidAt: paidAt ? new Date(paidAt) : new Date(),
+        paymentSource: paymentSource || "manual",
+        approvedBy: adminId,
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(rentPayments.id, paymentId));
+
+    const updatedPayment = await db.query.rentPayments.findFirst({
+      where: eq(rentPayments.id, paymentId),
+    });
+
+    res.json(mapOverdueStatus(updatedPayment));
+  } catch (error) {
+    req.log.error({ error }, "Failed to record manual rent payment");
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
