@@ -26,7 +26,8 @@ import {
   PlatformProperty,
   getEffectiveAmenities,
   getAmenitiesDisplayList,
-  NearbyAmenities
+  NearbyAmenities,
+  syncPlatformPropertiesFromApi
 } from "@/lib/inspections-store";
 import { getStudentFavoritesApi, addFavoriteApi, removeFavoriteApi } from "@/lib/favorites-store";
 import { InteractiveLeafletMap } from "@/components/map/InteractiveLeafletMap";
@@ -39,6 +40,14 @@ type Property = {
   roomType: string; areaSqm: number; bedrooms: number; bathrooms: number; floor: string; furnishing: string;
   availableFrom: string; currentRoommates: number; images: string[]; video360Url: string | null;
   verified: boolean; premium: boolean; livabilityScore: number; status: "متاح" | "مشغول" | "قيد المراجعة" | "مرفوض";
+  model3dUrl?: string | null;
+  rules?: string | null;
+  smoking?: string | null;
+  pets?: string | null;
+  visitorPolicy?: string | null;
+  utilities?: string | null;
+  deposit?: string | null;
+  fees?: string | null;
 };
 
 const properties: Property[] = [
@@ -57,7 +66,7 @@ const services = [
 const reviews = [
   { name: "سارة محمود", university: "جامعة كفر الشيخ", initials: "سم", color: "bg-teal-700", quote: "المكان مطابق للصور جداً، والأهم إن كل تفاصيل العقد كانت واضحة من البداية." },
   { name: "يوسف خالد", university: "جامعة المنصورة", initials: "يك", color: "bg-amber-700", quote: "قرب السكن من البوابة وفر عليّ وقت ومواصلات كل يوم. تجربة مريحة فعلاً." },
-  { name: "نورهان علي", university: "جامعة طنطا", initials: "نع", color: "bg-indigo-700", quote: "تواصلت مع المالك مباشرة وحجزت من غير لف ولا عمولة سمسار." },
+  { name: "نورهان علي", university: "جامعة طنطا", initials: "نع", color: "bg-indigo-700", quote: "حجزت عبر فريق دعم مكاني بكل سلاسة وأمان ودون أي عمولة سمسار." },
 ];
 
 const formatPrice = (n: number) => new Intl.NumberFormat("ar-EG").format(n);
@@ -93,32 +102,20 @@ function Header({
   activeView, 
   setView, 
   openToast,
-  onSecretAdminTrigger,
 }: { 
   light: boolean; 
   onTheme: () => void; 
   activeView: ActiveViewType; 
   setView: (v: ActiveViewType) => void; 
   openToast: (t: string) => void;
-  onSecretAdminTrigger: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [logoClicks, setLogoClicks] = useState(0);
   const { user } = useUser();
   const go = (id: string) => { setMenuOpen(false); document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); };
 
   const handleLogoClick = () => {
     setView("listings");
     go("home");
-    setLogoClicks((prev) => {
-      const next = prev + 1;
-      if (next >= 5) {
-        onSecretAdminTrigger();
-        return 0;
-      }
-      return next;
-    });
-    setTimeout(() => setLogoClicks(0), 3000);
   };
 
   return <>
@@ -356,9 +353,113 @@ function PropertyDetail({
   saved?: boolean;
   onSave?: () => void;
 }) {
-  const [media, setMedia] = useState<"photos" | "video">("photos"); const [photo, setPhoto] = useState(0);
+  const [media, setMedia] = useState<"photos" | "video">("photos"); 
+  const [photo, setPhoto] = useState(0);
   const [selectedAmenityKey, setSelectedAmenityKey] = useState<keyof NearbyAmenities | null>("universityGate");
-  const facts: Array<[ComponentType<{ size?: number; className?: string }>, string, string]> = [[Ruler, "المساحة", `${property.areaSqm} م²`], [BedDouble, "عدد الغرف", `${property.bedrooms}`], [Bath, "الحمامات", `${property.bathrooms}`], [Building2, "الدور", property.floor], [Sofa, "نوع الفرش", property.furnishing], [CalendarDays, "تاريخ التوفر", property.availableFrom], [Users, "الشركاء الحاليون", `${property.currentRoommates}`]];
+  const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
+
+  const getCalendarMonthName = (offset: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + offset);
+    return d.toLocaleDateString("ar-EG", { month: "long", year: "numeric" });
+  };
+
+  const getCalendarDays = (offset: number) => {
+    const today = new Date();
+    const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    
+    // First day of the month
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sunday, 6 is Saturday
+    
+    // Total days in the month
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    
+    const days: ({ date: Date; day: number; isToday: boolean; formatted: string } | null)[] = [];
+    
+    // Empty cells before first day
+    for (let i = 0; i < firstDayIndex; i++) {
+      days.push(null);
+    }
+    
+    // Days of the month
+    for (let i = 1; i <= totalDays; i++) {
+      const dateObj = new Date(year, month, i);
+      const isDayToday = dateObj.getDate() === today.getDate() && 
+                         dateObj.getMonth() === today.getMonth() && 
+                         dateObj.getFullYear() === today.getFullYear();
+                         
+      days.push({
+        date: dateObj,
+        day: i,
+        isToday: isDayToday,
+        formatted: `${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`
+      });
+    }
+    
+    return days;
+  };
+
+  // Helper to determine status for a specific date
+  const getDayStatus = (date: Date, property: any, availablePlaces: number) => {
+    if (availablePlaces <= 0) {
+      return "unavailable";
+    }
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const d = new Date(date);
+    d.setHours(0,0,0,0);
+    if (d < today) {
+      return "unavailable";
+    }
+
+    const activeBookings = property.activeBookings || [];
+    const hasMatchingBooking = activeBookings.some((b: any) => {
+      if (!b.appointmentDate) return false;
+      
+      const bDate = new Date(b.appointmentDate);
+      if (!isNaN(bDate.getTime())) {
+        return bDate.getDate() === date.getDate() && 
+               bDate.getMonth() === date.getMonth() && 
+               bDate.getFullYear() === date.getFullYear();
+      }
+      
+      const normalizedBookingStr = b.appointmentDate.replace(/[٠-٩]/g, (d: string) => String.fromCharCode(d.charCodeAt(0) - 1632));
+      const dayNum = date.getDate();
+      const monthNum = date.getMonth() + 1;
+      return normalizedBookingStr.includes(String(dayNum)) && (normalizedBookingStr.includes(String(monthNum)) || normalizedBookingStr.includes(getCalendarMonthName(calendarMonthOffset)));
+    });
+
+    if (hasMatchingBooking) {
+      return "reserved";
+    }
+
+    return "available";
+  };
+
+  const capacity = property.bedrooms || 0;
+  const currentRoommates = property.currentRoommates || 0;
+  const activeBookingsCount = (property as any).activeBookings?.length || 0;
+  const availablePlaces = (property as any).availablePlaces !== undefined 
+    ? (property as any).availablePlaces 
+    : Math.max(0, capacity - (currentRoommates + activeBookingsCount));
+
+  // Safe parsing of images
+  const propertyImages = Array.isArray(property.images) ? property.images : [];
+  const hasImages = propertyImages.length > 0;
+  const safePhotoIndex = photo < propertyImages.length ? photo : 0;
+
+  const facts: Array<[ComponentType<{ size?: number; className?: string }>, string, string]> = [
+    [Ruler, "المساحة", `${property.areaSqm} م²`], 
+    [BedDouble, "عدد الغرف", `${property.bedrooms}`], 
+    [Bath, "الحمامات", `${property.bathrooms}`], 
+    [Building2, "الدور", property.floor], 
+    [Sofa, "نوع الفرش", property.furnishing], 
+    [CalendarDays, "تاريخ التوفر", property.availableFrom], 
+    [Users, "الشاغر الحالي", availablePlaces > 0 ? `${availablePlaces} أماكن` : "مكتمل الحجز"]
+  ];
   
   // بيانات الخدمات والمنطقة المحيطة الديناميكية المعتمدة من الآدمن
   const effectiveAmenities = useMemo(() => {
@@ -369,10 +470,38 @@ function PropertyDetail({
     return getAmenitiesDisplayList(effectiveAmenities, (property as any).lat, (property as any).lng);
   }, [effectiveAmenities, property]);
 
+  // سياسات وقوانين العقار
+  const rules = property.rules || "";
+  const smoking = property.smoking || "";
+  const pets = property.pets || "";
+  const visitorPolicy = property.visitorPolicy || "";
+  const utilities = property.utilities || "";
+  const deposit = property.deposit || "";
+  const fees = property.fees || "";
+  const hasAnyCustomPolicy = rules || smoking || pets || visitorPolicy || utilities || deposit || fees;
+
   return <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}><div className="p-4 pt-14 sm:p-7 sm:pt-14">
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <p className="mb-1 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={15} className="text-primary" />{property.address}</p>
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1 text-sm text-muted-foreground">
+            <MapPin size={15} className="text-primary" />
+            {property.city} · {property.university}
+          </span>
+          {property.verified && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+              <ShieldCheck size={12} />
+              موثّق ومعتمد
+            </span>
+          )}
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            property.status === "متاح" 
+              ? "bg-teal-500/10 border border-teal-500/20 text-teal-600" 
+              : "bg-amber-500/10 border border-amber-500/20 text-amber-600"
+          }`}>
+            {property.status}
+          </span>
+        </div>
         <h2 className="text-2xl font-extrabold sm:text-3xl">{property.title}</h2>
       </div>
       <div className="flex items-center gap-3">
@@ -397,11 +526,133 @@ function PropertyDetail({
         </div>
       </div>
     </div>
-    <div className="overflow-hidden rounded-xl border border-border bg-card"><div className="relative h-64 sm:h-[390px]">{media === "photos" ? <ImageWithFallback src={property.images[photo]} alt={property.title} className="h-full w-full object-cover" testId="img-detail-main" /> : property.video360Url ? <video src={property.video360Url} className="h-full w-full object-cover" controls autoPlay muted data-testid="video-tour" /> : <div className="hero-wash flex h-full flex-col items-center justify-center gap-3 text-center"><Sparkles className="text-primary" size={35} /><strong>معاينة تخيلية للجولة</strong><span className="text-xs text-muted-foreground">هذه الوحدة لا تحتوي على فيديو 360° حقيقي بعد</span></div>}<div className="absolute right-3 top-3 flex overflow-hidden rounded-lg border border-white/20 bg-slate-950/65 p-1 text-xs font-bold text-white"><button onClick={() => setMedia("photos")} className={`rounded-md px-3 py-2 ${media === "photos" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-photos">صور</button><button onClick={() => setMedia("video")} className={`rounded-md px-3 py-2 ${media === "video" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-video">جولة 360°</button></div></div><div className="flex gap-2 overflow-x-auto p-3">{property.images.map((img, i) => <button key={img} onClick={() => { setPhoto(i); setMedia("photos"); }} className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 ${photo === i && media === "photos" ? "border-primary" : "border-transparent"}`} data-testid={`button-thumbnail-${i}`}><ImageWithFallback src={img} alt="" className="h-full w-full object-cover" /></button>)}</div></div>
-    <section className="section-rule mt-7 pt-6"><h3 className="mb-4 text-lg font-bold">تفاصيل الوحدة</h3><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{facts.map(([Icon, label, value]) => <div className="rounded-lg border border-border bg-card p-3" key={label}><Icon size={17} className="mb-2 text-primary" /><span className="block text-[11px] text-muted-foreground">{label}</span><strong className="text-sm">{value}</strong></div>)}</div></section>
-    
+
+    {/* معرض الصور والوسائط المطوّر */}
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="relative h-64 sm:h-[390px] w-full bg-slate-950">
+        {media === "photos" ? (
+          hasImages ? (
+            <ImageWithFallback src={propertyImages[safePhotoIndex]} alt={property.title} className="h-full w-full object-cover" testId="img-detail-main" />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-white/80 text-center p-4">
+              <Building2 size={48} className="mb-3 text-white/55" />
+              <strong className="text-base">لا توجد صور متاحة</strong>
+              <span className="text-xs text-white/60">لم يتم رفع صور لهذا العقار حتى الآن</span>
+            </div>
+          )
+        ) : property.video360Url ? (
+          <div className="relative h-full w-full">
+            <video src={property.video360Url} className="h-full w-full object-cover" controls autoPlay muted data-testid="video-tour" />
+            <div className="absolute bottom-3 right-3 bg-slate-950/70 text-white text-[11px] px-3 py-1.5 rounded-lg border border-white/10">
+              فيديو توضيحي للعقار
+            </div>
+          </div>
+        ) : (
+          <div className="hero-wash flex h-full flex-col items-center justify-center gap-3 text-center text-white p-4">
+            <Sparkles className="text-primary" size={35} />
+            <strong>فيديو توضيحي</strong>
+            <span className="text-xs text-white/60">هذه الوحدة لا تحتوي على فيديو توضيحي متاح حالياً</span>
+          </div>
+        )}
+
+        {/* أزرار تبديل المعرض */}
+        <div className="absolute right-3 top-3 flex overflow-hidden rounded-lg border border-white/20 bg-slate-950/65 p-1 text-xs font-bold text-white">
+          <button onClick={() => setMedia("photos")} className={`rounded-md px-3 py-2 ${media === "photos" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-photos">
+            صور الوحدة
+          </button>
+          {property.video360Url && (
+            <button onClick={() => setMedia("video")} className={`rounded-md px-3 py-2 ${media === "video" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-video">
+              فيديو المعاينة
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* مصغرات الصور لسهولة التصفح */}
+      {hasImages && media === "photos" && (
+        <div className="flex gap-2 overflow-x-auto p-3 border-t border-border bg-card/50" data-testid="gallery-thumbnails">
+          {propertyImages.map((img, i) => (
+            <button 
+              key={img} 
+              onClick={() => { setPhoto(i); setMedia("photos"); }} 
+              className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-all ${
+                safePhotoIndex === i ? "border-primary scale-95" : "border-transparent opacity-85 hover:opacity-100"
+              }`} 
+              data-testid={`button-thumbnail-${i}`}
+            >
+              <ImageWithFallback src={img} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* تفاصيل الوحدة الأساسية */}
+    <section className="section-rule mt-7 pt-6 border-t border-border">
+      <h3 className="mb-4 text-lg font-bold">مواصفات وتفاصيل السكن</h3>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {facts.map(([Icon, label, value]) => (
+          <div className="rounded-lg border border-border bg-card p-3" key={label}>
+            <Icon size={17} className="mb-2 text-primary" />
+            <span className="block text-[11px] text-muted-foreground">{label}</span>
+            <strong className="text-sm">{value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {/* ملخص الموقع الجغرافي الدقيق */}
+    <section className="section-rule mt-7 pt-6 border-t border-border">
+      <h3 className="mb-3 text-lg font-bold">العنوان وتفاصيل الموقع الجغرافي</h3>
+      <div className="rounded-xl border border-border bg-card p-4 space-y-2.5" data-testid="location-summary">
+        <div className="flex items-start gap-2 text-sm">
+          <MapPin size={17} className="text-primary shrink-0 mt-0.5" />
+          <div>
+            <strong className="block text-foreground">العنوان المعتمد:</strong>
+            <span className="text-muted-foreground">{property.address}</span>
+          </div>
+        </div>
+        <div className="grid gap-3 pt-2 text-xs text-muted-foreground sm:grid-cols-3 border-t border-border/60">
+          <div>
+            <strong>المدينة / المحافظة:</strong> {property.city}
+          </div>
+          <div>
+            <strong>الجامعة الأقرب:</strong> {property.university}
+          </div>
+          {((property as any).lat && (property as any).lng) ? (
+            <div>
+              <strong>الإحداثيات الجغرافية:</strong> {(property as any).lat?.toFixed(5)} , {(property as any).lng?.toFixed(5)}
+            </div>
+          ) : (
+            <div>
+              <strong>الإحداثيات الجغرافية:</strong> متوفرة على الخريطة التفاعلية
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+
+    {/* معلومات النموذج ثلاثي الأبعاد الآمن */}
+    {property.model3dUrl && (
+      <section className="section-rule mt-7 pt-6 border-t border-border">
+        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4" data-testid="badge-3d-available">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-blue-100 p-2.5 text-blue-600 shrink-0">
+              <Sparkle size={18} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-blue-900">نموذج ثلاثي الأبعاد (3D Model) متوفر للعقار</h4>
+              <p className="mt-1 text-xs text-blue-800/80 leading-5">
+                تتوفر معاينة فراغية كاملة وتصميم ثلاثي الأبعاد تفاعلي آمن لهذه الوحدة السكنية. لحماية حقوق الخصوصية والأمان الفني للمالك والطلاب، يرجى تقديم طلب حجز أو التواصل مع دعم منصة مكاني للحصول على الرابط المعتمد رسميًا لتجربة التجول الافتراضي.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    )}
+
     {/* كل ما تحتاجه حولك: خريطة OpenStreetMap و Leaflet تفاعلية مجانية 100% */}
-    <section className="section-rule mt-7 pt-6" data-testid="section-nearby-amenities">
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-nearby-amenities">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-lg font-bold">الخريطة والخدمات المحيطة بالعقار</h3>
@@ -459,8 +710,253 @@ function PropertyDetail({
       </div>
     </section>
 
-    <section className="section-rule mt-7 pt-6"><div className="mb-4 flex flex-wrap items-end justify-between gap-2"><h3 className="text-lg font-bold">ماذا يقول الطلاب؟</h3><span className="text-sm font-semibold text-primary">التقييم الإجمالي: ٤٫٧/٥ بناءً على ٤٨ تقييم</span></div><div className="grid gap-3 md:grid-cols-3">{reviews.map((review) => <div className="rounded-xl bg-muted/60 p-4" key={review.name}><div className="mb-3 flex items-center gap-2"><span className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white ${review.color}`}>{review.initials}</span><div><strong className="block text-sm">{review.name}</strong><span className="text-[10px] text-muted-foreground">{review.university}</span></div><span className="mr-auto text-xs text-amber-500">★★★★★</span></div><p className="text-xs leading-6 text-muted-foreground">“{review.quote}”</p></div>)}</div></section>
-  </div><div className="sticky bottom-0 flex flex-col gap-2 border-t border-border bg-background/95 p-3 backdrop-blur sm:flex-row sm:justify-end sm:p-4"><button onClick={onAI} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-primary py-3 text-sm font-bold text-primary hover:bg-primary/10 sm:flex-none sm:px-5" data-testid="button-open-ai"><Sparkles size={17} />إيجاد شريك سكن بالذكاء الاصطناعي</button><button onClick={onBook} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:-translate-y-0.5 sm:flex-none sm:px-7" data-testid="button-open-booking"><CalendarDays size={17} />احجز الآن</button></div></Modal>;
+    {/* سياسات وقوانين الإقامة بالتفصيل */}
+    <section className="section-rule mt-7 pt-6 border-t border-border">
+      <h3 className="mb-4 text-lg font-bold">سياسات الإقامة وقوانين العقار المعتمدة</h3>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {rules && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">تعليمات السكن وشروطه:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{rules}</p>
+          </div>
+        )}
+        {smoking && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">سياسة التدخين:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{smoking}</p>
+          </div>
+        )}
+        {pets && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">سياسة الحيوانات الأليفة:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{pets}</p>
+          </div>
+        )}
+        {visitorPolicy && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">سياسة الزوار والضيوف:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{visitorPolicy}</p>
+          </div>
+        )}
+        {utilities && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">المرافق والاستهلاك الكهربائي/المائي:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{utilities}</p>
+          </div>
+        )}
+        {deposit && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">مبلغ وقوانين التأمين:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{deposit}</p>
+          </div>
+        )}
+        {fees && (
+          <div className="rounded-xl border border-border bg-card p-4">
+            <strong className="block text-xs text-muted-foreground mb-1">الرسوم الإضافية أو فواتير الخدمات العامة:</strong>
+            <p className="text-sm font-semibold text-foreground leading-6">{fees}</p>
+          </div>
+        )}
+
+        {/* سياسات عامة لحماية الطلاب إذا لم تكن البيانات مخصصة في لوحة المالك */}
+        {!hasAnyCustomPolicy && (
+          <>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <strong className="block text-xs text-muted-foreground mb-1">سياسة التدخين والحيوانات الأليفة:</strong>
+              <p className="text-sm font-semibold text-foreground leading-6">التدخين غير مسموح به في الغرف المغلقة · الحيوانات الأليفة تتطلب مراجعة مسبقة لشركاء السكن المعتمدين.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <strong className="block text-xs text-muted-foreground mb-1">مبلغ التأمين وحفظ الودائع:</strong>
+              <p className="text-sm font-semibold text-foreground leading-6">يُدفع تأمين معادل لقيمة شهر واحد ويُسترد بالكامل عند إخلاء الوحدة السكنية دون حدوث أي تلفيات متعمدة.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <strong className="block text-xs text-muted-foreground mb-1">سياسة الزيارات والضيوف:</strong>
+              <p className="text-sm font-semibold text-foreground leading-6">يُسمح باستقبال الزوار من أقارب الدرجة الأولى في أوقات الهدوء شريطة التنسيق الكامل والمسؤول مع شركاء الإقامة بالوحدة.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <strong className="block text-xs text-muted-foreground mb-1">سياسة مكاني العامة للإقامة الآمنة:</strong>
+              <p className="text-sm font-semibold text-foreground leading-6">يُلتزم باحترام مواعيد الهدوء، العناية بسلامة الأجهزة والمرافق العامة للوحدة، والامتناع التام عن الممارسات التي تخالف مبادئ التعايش السلمي.</p>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+
+    {/* مؤشر توفر الغرفة وجدول الحجوزات التفاعلي */}
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-calendar">
+      <h3 className="mb-2 text-lg font-bold">حالة التوفر وجدول الحجوزات</h3>
+      <p className="text-xs text-muted-foreground mb-4">تابع حالة توفر الأماكن السكنية الشاغرة وتواريخ الحجز الفعلي للوحدة مباشرة</p>
+      
+      {/* بطاقة ملخص التوفر */}
+      <div className="grid gap-3 sm:grid-cols-3 mb-6">
+        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+          <div className="rounded-lg bg-emerald-100 p-2 text-emerald-600">
+            <CalendarDays size={18} />
+          </div>
+          <div>
+            <span className="block text-[11px] text-muted-foreground">تاريخ بداية التوفر</span>
+            <strong className="text-sm text-foreground">{property.availableFrom || "متاح الآن فوراً"}</strong>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+          <div className="rounded-lg bg-primary/10 p-2 text-primary">
+            <Users size={18} />
+          </div>
+          <div>
+            <span className="block text-[11px] text-muted-foreground">الأماكن المتاحة</span>
+            <strong className="text-sm text-foreground">
+              {availablePlaces > 0 ? (
+                availablePlaces === 1 ? "مكان واحد شاغر" : `${availablePlaces} أماكن شاغرة`
+              ) : (
+                "مكتملة الحجز بالكامل"
+              )}
+            </strong>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+          <span className={`h-3 w-3 rounded-full shrink-0 ${availablePlaces > 0 ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
+          <div>
+            <span className="block text-[11px] text-muted-foreground">الحالة الحالية للوحدة</span>
+            <strong className={`text-sm ${availablePlaces > 0 ? "text-emerald-600" : "text-red-500"}`}>
+              {availablePlaces > 0 ? "متاح للحجز الفوري" : "غير متاح — مكتملة"}
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      {/* تقويم تفاعلي جميل باللغة العربية */}
+      <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-sm font-bold text-foreground">جدول مواعيد الحجوزات (الشهور القادمة)</h4>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => {
+                setCalendarMonthOffset(prev => Math.max(0, prev - 1));
+              }}
+              disabled={calendarMonthOffset === 0}
+              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
+              data-testid="btn-calendar-prev"
+            >
+              &larr;
+            </button>
+            <span className="text-xs font-bold px-2 py-1 bg-muted rounded-md select-none">
+              {getCalendarMonthName(calendarMonthOffset)}
+            </span>
+            <button 
+              onClick={() => {
+                setCalendarMonthOffset(prev => Math.min(3, prev + 1));
+              }}
+              disabled={calendarMonthOffset === 3}
+              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
+              data-testid="btn-calendar-next"
+            >
+              &rarr;
+            </button>
+          </div>
+        </div>
+
+        {/* أسماء الأيام */}
+        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted-foreground mb-2">
+          {["ح", "ن", "ث", "ر", "خ", "ج", "س"].map(day => (
+            <div key={day} className="py-1">{day}</div>
+          ))}
+        </div>
+
+        {/* أيام التقويم */}
+        <div className="grid grid-cols-7 gap-1">
+          {getCalendarDays(calendarMonthOffset).map((dayObj, idx) => {
+            if (!dayObj) {
+              return <div key={`empty-${idx}`} className="aspect-square bg-transparent" />;
+            }
+            
+            const isToday = dayObj.isToday;
+            const status = getDayStatus(dayObj.date, property, availablePlaces);
+            
+            let statusClass = "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/25 border border-emerald-500/20";
+            let statusLabel = "متاح";
+            
+            if (status === "reserved") {
+              statusClass = "bg-amber-500/20 text-amber-700 hover:bg-amber-500/35 border border-amber-500/30 font-bold";
+              statusLabel = "محجوز";
+            } else if (status === "unavailable") {
+              statusClass = "bg-red-500/10 text-red-500 opacity-60 cursor-not-allowed border border-red-500/10";
+              statusLabel = "غير متاح";
+            }
+
+            return (
+              <div 
+                key={dayObj.formatted}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all select-none p-1 ${statusClass}`}
+                title={`${dayObj.formatted} - ${statusLabel}`}
+                data-testid={`calendar-day-${dayObj.formatted}`}
+              >
+                <span className="font-bold">{dayObj.day}</span>
+                <span className="text-[8px] font-medium opacity-80 scale-90">{statusLabel}</span>
+                {isToday && (
+                  <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* دليل التقويم */}
+        <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-emerald-500/25 border border-emerald-500/40 shrink-0" />
+            <span>متاح للحجز</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-amber-500/30 border border-amber-500/50 shrink-0" />
+            <span>محجوز</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-red-500/10 border border-red-500/20 shrink-0" />
+            <span>غير متاح / مكتملة</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* ما يقوله الطلاب */}
+    <section className="section-rule mt-7 pt-6 border-t border-border">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <h3 className="text-lg font-bold">آراء وتقييمات الطلاب</h3>
+        <span className="text-sm font-semibold text-primary">التقييم الإجمالي: ٤٫٧/٥ بناءً على ٤٨ تقييم</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {reviews.map((review) => (
+          <div className="rounded-xl bg-muted/60 p-4" key={review.name}>
+            <div className="mb-3 flex items-center gap-2">
+              <span className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white ${review.color}`}>
+                {review.initials}
+              </span>
+              <div>
+                <strong className="block text-sm">{review.name}</strong>
+                <span className="text-[10px] text-muted-foreground">{review.university}</span>
+              </div>
+              <span className="mr-auto text-xs text-amber-500">★★★★★</span>
+            </div>
+            <p className="text-xs leading-6 text-muted-foreground">“{review.quote}”</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  </div>
+  
+  {/* شريط الإجراءات والـ CTA أسفل تفاصيل العقار */}
+  <div className="sticky bottom-0 flex flex-col gap-2 border-t border-border bg-background/95 p-3 backdrop-blur sm:flex-row sm:justify-end sm:p-4">
+    <button onClick={onAI} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-primary py-3 text-sm font-bold text-primary hover:bg-primary/10 sm:flex-none sm:px-5" data-testid="button-open-ai">
+      <Sparkles size={17} />
+      إيجاد شريك سكن بالذكاء الاصطناعي
+    </button>
+    <button onClick={onBook} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:-translate-y-0.5 sm:flex-none sm:px-7" data-testid="button-open-booking">
+      <CalendarDays size={17} />
+      احجز الآن
+    </button>
+  </div>
+</Modal>;
 }
 
 function CoffeeIcon() { return <span className="text-sm font-bold">ق</span>; }
@@ -648,6 +1144,11 @@ function AppContent() {
     return () => clearTimeout(t); 
   }, [toast]);
 
+  // مزامنة العقارات من الخادم عند بدء تشغيل التطبيق لتحديث الأماكن الشاغرة والحجوزات الحية
+  useEffect(() => {
+    syncPlatformPropertiesFromApi();
+  }, []);
+
   // مستمع تحديث بيانات العقارات ومسافات المنطقة المحيطة فوراً
   useEffect(() => {
     const handlePropsUpdated = () => {
@@ -666,34 +1167,6 @@ function AppContent() {
       }
     }
   }, [platformProperties]);
-
-  // مستمع اختصار الكيبورد السري للآدمن الشبح (Ctrl + Shift + A أو Alt + Shift + M)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.ctrlKey && e.shiftKey && (e.key === "a" || e.key === "A" || e.code === "KeyA")) ||
-        (e.altKey && e.shiftKey && (e.key === "m" || e.key === "M" || e.code === "KeyM"))
-      ) {
-        e.preventDefault();
-        setLocation("/admin-secure-portal");
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  // مستمع عنوان الهاش السري (#mkany-admin أو #stealth-admin)
-  useEffect(() => {
-    const checkHash = () => {
-      if (window.location.hash === "#mkany-admin" || window.location.hash === "#stealth-admin") {
-        setLocation("/admin-secure-portal");
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-    };
-    checkHash();
-    window.addEventListener("hashchange", checkHash);
-    return () => window.removeEventListener("hashchange", checkHash);
-  }, []);
 
   const shown = useMemo(() => platformProperties.filter((p) => { 
     const cityOkay = !query.city || p.university === query.city; 
@@ -780,7 +1253,6 @@ function AppContent() {
         activeView={activeView} 
         setView={setActiveView} 
         openToast={setToast}
-        onSecretAdminTrigger={() => setLocation("/admin-secure-portal")}
       />
 
       {activeView === "listings" && (
@@ -891,6 +1363,9 @@ function AppContent() {
             setBookingOpen(false);
             setActiveView("studentDashboard");
           }}
+          onSuccess={() => {
+            syncPlatformPropertiesFromApi();
+          }}
         />
       )}
 
@@ -905,20 +1380,13 @@ function AppContent() {
 
 function RootRouter() {
   const [location] = useLocation();
-  const hash = typeof window !== "undefined" ? window.location.hash : "";
-  const search = typeof window !== "undefined" ? window.location.search : "";
 
   // مسار الآدمن المستقل والمشفر
   const isAdminPath =
     location === "/admin" ||
     location.startsWith("/admin/") ||
     location === "/admin-secure-portal" ||
-    location.startsWith("/admin-secure-portal") ||
-    hash.includes("admin-secure-portal") ||
-    search.includes("admin-secure-portal") ||
-    hash === "#admin" ||
-    hash === "#mkany-admin" ||
-    hash === "#stealth-admin";
+    location.startsWith("/admin-secure-portal");
 
   if (isAdminPath) {
     return <AdminSecurePortalPage />;

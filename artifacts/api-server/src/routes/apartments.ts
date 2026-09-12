@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireOwner, requireAdmin } from "../middlewares/auth";
-import { db, apartments, apartmentPhotos, users } from "@workspace/db";
+import { db, apartments, apartmentPhotos, users, bookings } from "@workspace/db";
 import { eq, and, or, desc, asc, sql } from "drizzle-orm";
 import { insertApartmentSchema } from "@workspace/db/schema";
 import { getAuth } from "@clerk/express";
@@ -100,7 +100,38 @@ router.get("/", async (req, res) => {
       });
     }
 
-    return res.json(data);
+    // Recalculate dynamic availablePlaces and append activeBookings
+    const aptIds = data.map((a: any) => a.id);
+    let allActiveBookings: any[] = [];
+    if (aptIds.length > 0) {
+      allActiveBookings = await db.query.bookings.findMany({
+        where: and(
+          or(...aptIds.map((id: number) => eq(bookings.propertyId, id))),
+          or(eq(bookings.status, "confirmed"), eq(bookings.status, "pending_review"))
+        ),
+        columns: {
+          id: true,
+          propertyId: true,
+          appointmentDate: true,
+          status: true,
+        }
+      });
+    }
+
+    const enhancedData = data.map((apt: any) => {
+      const aptBookings = allActiveBookings.filter((b: any) => b.propertyId === apt.id);
+      const capacity = apt.bedrooms || 0;
+      const currentRoommates = apt.currentRoommates || 0;
+      const occupiedPlaces = currentRoommates + aptBookings.length;
+      const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      return {
+        ...apt,
+        activeBookings: aptBookings,
+        availablePlaces,
+      };
+    });
+
+    return res.json(enhancedData);
   } catch (error) {
     req.log.error(error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -136,7 +167,38 @@ router.get("/mine", requireAuth, requireOwner, async (req, res) => {
       },
     });
 
-    return res.json(data);
+    // Recalculate dynamic availablePlaces and append activeBookings
+    const aptIds = data.map((a: any) => a.id);
+    let allActiveBookings: any[] = [];
+    if (aptIds.length > 0) {
+      allActiveBookings = await db.query.bookings.findMany({
+        where: and(
+          or(...aptIds.map((id: number) => eq(bookings.propertyId, id))),
+          or(eq(bookings.status, "confirmed"), eq(bookings.status, "pending_review"))
+        ),
+        columns: {
+          id: true,
+          propertyId: true,
+          appointmentDate: true,
+          status: true,
+        }
+      });
+    }
+
+    const enhancedData = data.map((apt: any) => {
+      const aptBookings = allActiveBookings.filter((b: any) => b.propertyId === apt.id);
+      const capacity = apt.bedrooms || 0;
+      const currentRoommates = apt.currentRoommates || 0;
+      const occupiedPlaces = currentRoommates + aptBookings.length;
+      const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      return {
+        ...apt,
+        activeBookings: aptBookings,
+        availablePlaces,
+      };
+    });
+
+    return res.json(enhancedData);
   } catch (error) {
     req.log.error(error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -199,7 +261,7 @@ router.get("/:id", async (req, res) => {
           where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
         });
         if (authUser) {
-          if (authUser.role === "admin" || authUser.id === data.ownerId || authUser.clerkUserId === data.ownerId) {
+          if (authUser.role === "admin" || authUser.role === "super_admin" || authUser.id === data.ownerId || authUser.clerkUserId === data.ownerId) {
             canViewUnapproved = true;
           }
         }
@@ -209,7 +271,32 @@ router.get("/:id", async (req, res) => {
       }
     }
 
-    return res.json(data);
+    // Fetch active bookings for this apartment
+    const activeBookings = await db.query.bookings.findMany({
+      where: and(
+        eq(bookings.propertyId, data.id),
+        or(eq(bookings.status, "confirmed"), eq(bookings.status, "pending_review"))
+      ),
+      columns: {
+        id: true,
+        propertyId: true,
+        appointmentDate: true,
+        status: true,
+      }
+    });
+
+    const capacity = data.bedrooms || 0;
+    const currentRoommates = data.currentRoommates || 0;
+    const occupiedPlaces = currentRoommates + activeBookings.length;
+    const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+
+    const enhancedData = {
+      ...data,
+      activeBookings,
+      availablePlaces,
+    };
+
+    return res.json(enhancedData);
   } catch (error) {
     req.log.error(error);
     return res.status(500).json({ error: "Internal Server Error" });

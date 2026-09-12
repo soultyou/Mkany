@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/components/auth/clerk-auth";
 import { createBookingApi, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
 import { StandardModal } from "@/components/ui/StandardModal";
+import { uploadSingleImageApi } from "@/lib/api-client";
 
 interface BookingReceiptFlowProps {
   property: {
@@ -36,6 +37,7 @@ interface BookingReceiptFlowProps {
   onClose: () => void;
   openToast: (msg: string) => void;
   onGoToStudentDashboard: () => void;
+  onSuccess?: () => void;
 }
 
 const SAMPLE_RECEIPT_PRESETS = [
@@ -54,6 +56,7 @@ export function BookingReceiptFlow({
   onClose,
   openToast,
   onGoToStudentDashboard,
+  onSuccess,
 }: BookingReceiptFlowProps) {
   const { user, openSignIn } = useAuth();
 
@@ -88,20 +91,25 @@ export function BookingReceiptFlow({
   };
 
   // رفع ملف سكرين شات من الجهاز
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setReceiptImageUrl(event.target.result as string);
-        setIsUploading(false);
+    try {
+      const res = await uploadSingleImageApi(file);
+      if (res && res.url) {
+        setReceiptImageUrl(res.url);
         openToast("تم رفع سكرين شات الإيصال بنجاح!");
+      } else {
+        throw new Error("لم يتم إرجاع رابط الصورة من خادم التخزين");
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error("Upload receipt failed:", err);
+      openToast(err?.message || "فشل رفع سكرين شات الإيصال، يرجى المحاولة ثانية");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // تأكيد رفع الإيصال والتوجيه التلقائي إلى واتساب
@@ -144,6 +152,10 @@ export function BookingReceiptFlow({
       setCompletedBooking(fullBooking);
       setStep(3);
       setIsSubmitting(false);
+
+      if (onSuccess) {
+        onSuccess();
+      }
 
       // تجهيز رابط الواتساب والتوجيه التلقائي الفوري
       const waUrl = buildWhatsAppBookingUrl(fullBooking);
@@ -536,7 +548,7 @@ export function BookingReceiptFlow({
 
             <p className="mx-auto mt-2 max-w-md text-xs leading-6 text-muted-foreground">
               تم حفظ حجزك في المنصة. تم توجيهك الآن لإرسال تفاصيل الإيصال على رقم واتساب الإدارة المخصص:{" "}
-              <strong className="text-foreground font-mono font-bold">01055332242</strong> لمراجعته وتأكيده مع المالك فوراً.
+              <strong className="text-foreground font-mono font-bold">01055332242</strong> لمراجعته وتأكيده من قبل إدارة منصة مكاني فوراً.
             </p>
 
             {/* بطاقة ملخص الحجز */}

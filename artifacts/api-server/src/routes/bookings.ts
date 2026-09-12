@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db, bookings, apartments } from "@workspace/db";
-import { eq, inArray, desc, and } from "drizzle-orm";
+import { eq, inArray, desc, and, or } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { ensureSeedApartments } from "../lib/seed-apartments";
 
@@ -79,6 +79,43 @@ function formatOwnerBooking(b: any) {
 }
 
 /**
+ * Recalculate dynamic availablePlaces and update the apartment status accordingly.
+ */
+async function syncApartmentStatus(propertyId: number) {
+  try {
+    const property = await db.query.apartments.findFirst({
+      where: eq(apartments.id, propertyId),
+    });
+    if (!property) return;
+
+    const activeBookings = await db.query.bookings.findMany({
+      where: and(
+        eq(bookings.propertyId, propertyId),
+        or(eq(bookings.status, "confirmed"), eq(bookings.status, "pending_review"))
+      ),
+    });
+
+    const capacity = property.bedrooms || 0;
+    const currentRoommates = property.currentRoommates || 0;
+    const occupiedPlaces = currentRoommates + activeBookings.length;
+    const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+
+    let newStatus = property.status;
+    if (property.status === "متاح" || property.status === "مشغول") {
+      newStatus = availablePlaces === 0 ? "مشغول" : "متاح";
+    }
+
+    if (newStatus !== property.status) {
+      await db.update(apartments)
+        .set({ status: newStatus, updatedAt: new Date() })
+        .where(eq(apartments.id, propertyId));
+    }
+  } catch (error) {
+    console.error("Failed to sync apartment status:", error);
+  }
+}
+
+/**
  * POST /api/bookings
  * Create a new booking for the authenticated student.
  * Never accepts studentId, status, or adminNotes from client; uses req.dbUser.id.
@@ -118,6 +155,27 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
     const isApproved = property.status === "متاح" || property.status === "approved";
     if (!isApproved) {
       res.status(400).json({ error: "Bad Request", message: "لا يمكن حجز عقار لم يتم اعتماده ونشره من الإدارة بعد" });
+      return;
+    }
+
+    // Validate availability
+    const activeBookings = await db.query.bookings.findMany({
+      where: and(
+        eq(bookings.propertyId, parsedPropertyId),
+        or(eq(bookings.status, "confirmed"), eq(bookings.status, "pending_review"))
+      ),
+    });
+
+    const capacity = property.bedrooms || 0;
+    const currentRoommates = property.currentRoommates || 0;
+    const occupiedPlaces = currentRoommates + activeBookings.length;
+    const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+
+    if (availablePlaces <= 0) {
+      res.status(400).json({ 
+        error: "Bad Request", 
+        message: "عذراً، هذه الوحدة السكنية مكتملة الحجز بالكامل وغير متاحة للحجوزات الجديدة حالياً." 
+      });
       return;
     }
 
@@ -176,6 +234,9 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       updatedAt: new Date(),
     }).returning();
 
+    // Sync apartment status in database
+    await syncApartmentStatus(parsedPropertyId);
+
     const fullBooking = await db.query.bookings.findFirst({
       where: eq(bookings.id, newBooking.id),
       with: { property: true, student: true },
@@ -217,9 +278,9 @@ router.get("/my-bookings", requireAuth, requireRole(["student"]), async (req: Re
  * Admins receive all bookings.
  * Owner responses are sanitized to protect student privacy and prevent direct contact.
  */
-router.get("/owner-bookings", requireAuth, requireRole(["owner", "admin"]), async (req: Request, res: Response) => {
+router.get("/owner-bookings", requireAuth, requireRole(["owner", "admin", "super_admin"]), async (req: Request, res: Response) => {
   try {
-    if (req.dbUser!.role === "admin") {
+    if (req.dbUser!.role === "admin" || req.dbUser!.role === "super_admin") {
       const allBookings = await db.query.bookings.findMany({
         with: { property: true, student: true },
         orderBy: [desc(bookings.createdAt)],
@@ -255,7 +316,7 @@ router.get("/owner-bookings", requireAuth, requireRole(["owner", "admin"]), asyn
  * GET /api/bookings/admin
  * Admin endpoint to list all bookings for review.
  */
-router.get("/admin", requireAuth, requireRole(["admin"]), async (req: Request, res: Response) => {
+router.get("/admin", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
   try {
     const adminBookings = await db.query.bookings.findMany({
       with: { property: true, student: true },
@@ -293,7 +354,7 @@ router.get("/:id", requireAuth, async (req: Request, res: Response) => {
     }
 
     // Admin authorization
-    if (user.role === "admin") {
+    if (user.role === "admin" || user.role === "super_admin") {
       res.json(formatBooking(booking));
       return;
     }
@@ -330,7 +391,7 @@ router.get("/:id", requireAuth, async (req: Request, res: Response) => {
  * Admin endpoint to update booking status and notes.
  * Strictly restricted to admin role.
  */
-router.patch("/:id/status", requireAuth, requireRole(["admin"]), async (req: Request, res: Response) => {
+router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const { status, adminNotes, appointmentDate, appointmentTime } = req.body;
@@ -369,6 +430,9 @@ router.patch("/:id/status", requireAuth, requireRole(["admin"]), async (req: Req
     await db.update(bookings)
       .set(updateData)
       .where(eq(bookings.id, id));
+
+    // Sync apartment status in database
+    await syncApartmentStatus(existing.propertyId);
 
     const updated = await db.query.bookings.findFirst({
       where: eq(bookings.id, id),

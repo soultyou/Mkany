@@ -367,7 +367,7 @@ export function OwnerPublicView({
 
               <div className="mt-8 pt-4 border-t border-border">
                 <button 
-                  onClick={() => onOpenToast("تواصل معنا عبر 01000001234 لمناقشة إدارة العقار الكامل")}
+                  onClick={() => onOpenToast("تواصل مع إدارة مكاني عبر 01055332242 لمناقشة إدارة العقار الكامل")}
                   className="w-full rounded-xl border border-border bg-background py-3 text-sm font-bold hover:bg-muted transition-colors"
                 >
                   استفسر عن باقة الإدارة الكاملة
