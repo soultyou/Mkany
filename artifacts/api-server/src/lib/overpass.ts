@@ -58,7 +58,16 @@ export function formatDistanceWithLabel(meters: number, isGeographicOnly: boolea
 }
 
 const overpassCache = new Map<string, { timestamp: number; data: NearbyAmenities }>();
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes in-memory cache
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours in-memory cache
+
+/**
+ * Invalidate cached amenities for given coordinates
+ */
+export function invalidateOverpassCache(lat?: number | null, lng?: number | null) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return;
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  overpassCache.delete(cacheKey);
+}
 
 /**
  * Fetch real amenities from OpenStreetMap Overpass API
@@ -108,10 +117,10 @@ export async function fetchNearbyAmenitiesFromOverpass(lat: number, lng: number)
   // Strictly query university and college for educational institutions — schools are NOT universities and must NOT be substituted.
   const query = `[out:json][timeout:25];
 (
-  nwr(around:2500,${lat},${lng})["amenity"~"hospital|clinic|pharmacy|cafe|restaurant|fast_food|university|college|bus_station|taxi|marketplace"];
-  nwr(around:2500,${lat},${lng})["shop"~"supermarket|convenience|grocery|bakery|mall|department_store"];
-  nwr(around:2500,${lat},${lng})["highway"="bus_stop"];
-  nwr(around:2500,${lat},${lng})["public_transport"~"platform|stop_position|station"];
+  nwr(around:10000,${lat},${lng})["amenity"~"hospital|clinic|pharmacy|cafe|restaurant|fast_food|university|college|bus_station|taxi|marketplace"];
+  nwr(around:10000,${lat},${lng})["shop"~"supermarket|convenience|grocery|bakery|mall|department_store"];
+  nwr(around:10000,${lat},${lng})["highway"="bus_stop"];
+  nwr(around:10000,${lat},${lng})["public_transport"~"platform|stop_position|station"];
 );
 out center;`;
 
@@ -179,7 +188,6 @@ out center;`;
       if (placeLat === null || placeLng === null) continue;
 
       const distanceMeters = getHaversineDistance(lat, lng, placeLat, placeLng);
-      if (distanceMeters > 3000) continue;
 
       // Classify type
       let categoryType = "";
@@ -205,6 +213,9 @@ out center;`;
       }
 
       if (!categoryType) continue;
+
+      const maxDistance = categoryType === "universityGate" ? 10000 : 1000;
+      if (distanceMeters > maxDistance) continue;
 
       const isUniversity = categoryType === "universityGate" && (amenity === "university" || building === "university" || name.includes("جامعة") || name.includes("جامعه"));
 
@@ -256,7 +267,7 @@ out center;`;
     };
 
     for (const p of uniquePlaces) {
-      if (lists[p.type].length >= 3) continue;
+      if (lists[p.type].length >= 5) continue;
 
       lists[p.type].push({
         name: p.name,

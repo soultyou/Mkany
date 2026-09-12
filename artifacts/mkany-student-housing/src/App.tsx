@@ -708,13 +708,13 @@ function PropertyDetail({
           <div>
             <strong>الجامعة الأقرب:</strong> {property.university}
           </div>
-          {((property as any).lat && (property as any).lng) ? (
+          {((property as any).lat !== undefined && (property as any).lat !== null && (property as any).lng !== undefined && (property as any).lng !== null) ? (
             <div>
               <strong>الإحداثيات الجغرافية:</strong> {(property as any).lat?.toFixed(5)} , {(property as any).lng?.toFixed(5)}
             </div>
           ) : (
             <div>
-              <strong>الإحداثيات الجغرافية:</strong> متوفرة على الخريطة التفاعلية
+              <strong>الإحداثيات الجغرافية:</strong> يحتاج تحديد الموقع
             </div>
           )}
         </div>

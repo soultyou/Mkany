@@ -755,8 +755,8 @@ export async function syncPlatformPropertiesFromApi(statusParam: string = "all")
         status: a.status || "متاح",
         ownerId: a.ownerId,
         inspectionId: a.inspectionId,
-        lat: a.lat ?? baseCoordMap[a.id]?.lat,
-        lng: a.lng ?? baseCoordMap[a.id]?.lng,
+        lat: a.lat,
+        lng: a.lng,
         nearbyAmenities: a.nearbyAmenities,
       }));
       savePlatformProperties(mapped);
@@ -772,15 +772,6 @@ export async function syncPlatformPropertiesFromApi(statusParam: string = "all")
  * جلب جميع العقارات المعتمدة والمنشورة على المنصة
  */
 export function getAllPlatformProperties(): PlatformProperty[] {
-  const baseCoordMap: Record<number, { lat: number; lng: number }> = {
-    1: { lat: 31.1107, lng: 30.9388 },
-    2: { lat: 31.1152, lng: 30.9422 },
-    3: { lat: 31.0425, lng: 31.3571 },
-    4: { lat: 30.8001, lng: 30.9995 },
-    5: { lat: 31.0550, lng: 31.3900 },
-    6: { lat: 31.1120, lng: 30.9450 },
-  };
-
   if (typeof window === "undefined") return BASE_PROPERTIES;
   try {
     const raw = localStorage.getItem(STORAGE_PROPERTIES_KEY);
@@ -791,11 +782,10 @@ export function getAllPlatformProperties(): PlatformProperty[] {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
       return parsed.map((p: PlatformProperty) => {
-        const fallbackCoord = baseCoordMap[p.id];
         return {
           ...p,
-          lat: p.lat ?? fallbackCoord?.lat,
-          lng: p.lng ?? fallbackCoord?.lng,
+          lat: p.lat,
+          lng: p.lng,
           nearbyAmenities: p.nearbyAmenities ? getEffectiveAmenities(p) : undefined,
         };
       });

@@ -39,7 +39,9 @@ import {
   CheckSquare,
   FileText,
   Image as ImageIcon,
-  Headphones
+  Headphones,
+  Upload,
+  Star
 } from "lucide-react";
 import { 
   getAdminSupportConversationsApi, 
@@ -86,9 +88,12 @@ import {
   approveApartmentApi,
   rejectApartmentApi,
   updateInspectionApi,
-  publishInspectionApi
+  publishInspectionApi,
+  uploadMultipleImagesApi,
+  uploadSingleImageApi
 } from "@/lib/api-client";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
+import { PropertyLocationPicker } from "@/components/map/PropertyLocationPicker";
 import { 
   getAdminBookingsApi, 
   updateBookingStatusApi, 
@@ -195,6 +200,303 @@ export function AdminInspectionPortal({
   const [properties, setProperties] = useState<PlatformProperty[]>(getAllPlatformProperties());
   const [editingProperty, setEditingProperty] = useState<PlatformProperty | null>(null);
   const [isNewPropertyModalOpen, setIsNewPropertyModalOpen] = useState(false);
+
+  // Unified Property & Inspection Review Workspace States
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewPrice, setReviewPrice] = useState<number>(0);
+  const [reviewUniversity, setReviewUniversity] = useState("");
+  const [reviewCity, setReviewCity] = useState("");
+  const [reviewAddress, setReviewAddress] = useState("");
+  const [reviewRoomType, setReviewRoomType] = useState("شقة كاملة");
+  const [reviewAreaSqm, setReviewAreaSqm] = useState<number>(90);
+  const [reviewBedrooms, setReviewBedrooms] = useState<number>(2);
+  const [reviewBathrooms, setReviewBathrooms] = useState<number>(1);
+  const [reviewFloor, setReviewFloor] = useState("الدور الأول");
+  const [reviewFurnishing, setReviewFurnishing] = useState("مفروش سوبر لوكس");
+  const [reviewDescription, setReviewDescription] = useState("");
+  const [reviewLat, setReviewLat] = useState<number | undefined>(undefined);
+  const [reviewLng, setReviewLng] = useState<number | undefined>(undefined);
+  const [reviewPhotos, setReviewPhotos] = useState<string[]>([]);
+  const [reviewVideo360Url, setReviewVideo360Url] = useState("");
+  const [reviewModel3dUrl, setReviewModel3dUrl] = useState("");
+  const [reviewLivabilityScore, setReviewLivabilityScore] = useState<number>(95);
+  const [reviewInspectorReport, setReviewInspectorReport] = useState("");
+  const [reviewAmenities, setReviewAmenities] = useState<any>(null);
+  const [isUploadingReviewPhotos, setIsUploadingReviewPhotos] = useState<boolean>(false);
+
+  const openInspectionReviewModal = (insp: PropertyInspection) => {
+    setSelectedInspection(insp);
+    setEditingProperty(null);
+    setReviewTitle(insp.title || "");
+    setReviewPrice(insp.pricePerMonth || 0);
+    setReviewUniversity(insp.university || "");
+    setReviewCity(insp.city || "");
+    setReviewAddress(insp.address || "");
+    setReviewRoomType(insp.roomType || "شقة كاملة");
+    setReviewAreaSqm(insp.areaSqm || 90);
+    setReviewBedrooms(insp.bedrooms || 2);
+    setReviewBathrooms(insp.bathrooms || 1);
+    setReviewFloor(insp.floor || "الدور الأول");
+    setReviewFurnishing(insp.furnishing || "مفروش سوبر لوكس");
+    setReviewDescription(insp.notes || "");
+    setReviewLat(insp.lat ? Number(insp.lat) : undefined);
+    setReviewLng(insp.lng ? Number(insp.lng) : undefined);
+    setReviewPhotos(insp.finalImages?.length ? insp.finalImages : insp.initialPhotos || []);
+    setReviewVideo360Url(insp.video360Url || "");
+    setReviewModel3dUrl((insp as any).model3dUrl || "");
+    setReviewLivabilityScore(insp.livabilityScore || 95);
+    setReviewInspectorReport(insp.inspectorReport || "");
+    setReviewAmenities(getEffectiveAmenities(insp));
+    setActionModal("activate");
+  };
+
+  const openPropertyReviewModal = (prop: PlatformProperty) => {
+    setEditingProperty(prop);
+    setSelectedInspection(null);
+    setReviewTitle(prop.title || "");
+    setReviewPrice(prop.pricePerMonth || 0);
+    setReviewUniversity(prop.university || "");
+    setReviewCity(prop.city || "");
+    setReviewAddress(prop.address || "");
+    setReviewRoomType(prop.roomType || "شقة كاملة");
+    setReviewAreaSqm(prop.areaSqm || 90);
+    setReviewBedrooms(prop.bedrooms || 2);
+    setReviewBathrooms(prop.bathrooms || 1);
+    setReviewFloor(prop.floor || "الدور الأول");
+    setReviewFurnishing(prop.furnishing || "مفروش سوبر لوكس");
+    setReviewDescription(prop.description || "");
+    setReviewLat(prop.lat ? Number(prop.lat) : undefined);
+    setReviewLng(prop.lng ? Number(prop.lng) : undefined);
+    setReviewPhotos(prop.images || []);
+    setReviewVideo360Url(prop.video360Url || "");
+    setReviewModel3dUrl((prop as any).model3dUrl || "");
+    setReviewLivabilityScore(prop.livabilityScore || 95);
+    setReviewInspectorReport("");
+    setReviewAmenities(getEffectiveAmenities(prop));
+  };
+
+  const handleReviewPhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingReviewPhotos(true);
+    try {
+      const fileArray = Array.from(files);
+      const res = await uploadMultipleImagesApi(fileArray);
+      if (res && res.urls && res.urls.length > 0) {
+        setReviewPhotos((prev) => [...prev, ...res.urls]);
+        openToast(`تم رفع ${res.urls.length} صور جديدة بنجاح ✨`);
+      }
+    } catch (err) {
+      console.warn("Multiple upload failed, trying single upload fallback:", err);
+      let count = 0;
+      for (const file of Array.from(files)) {
+        try {
+          const single = await uploadSingleImageApi(file);
+          if (single?.url) {
+            setReviewPhotos((prev) => [...prev, single.url]);
+            count++;
+          }
+        } catch {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              setReviewPhotos((prev) => [...prev, reader.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+      if (count > 0) openToast(`تم رفع ${count} صور بنجاح`);
+    } finally {
+      setIsUploadingReviewPhotos(false);
+    }
+  };
+
+  const handleRemoveReviewPhoto = (indexToRemove: number) => {
+    setReviewPhotos((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    openToast("تم حذف الصورة من المعرض");
+  };
+
+  const handleSetCoverPhoto = (index: number) => {
+    setReviewPhotos((prev) => {
+      const target = prev[index];
+      const rest = prev.filter((_, idx) => idx !== index);
+      return [target, ...rest];
+    });
+    openToast("تم تعيين الصورة كغلاف رئيسي للعقار 📸");
+  };
+
+  const handleSaveReviewOnly = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (selectedInspection) {
+      try {
+        await updateInspectionApi(selectedInspection.id, {
+          title: reviewTitle,
+          pricePerMonth: reviewPrice,
+          city: reviewCity,
+          address: reviewAddress,
+          university: reviewUniversity,
+          roomType: reviewRoomType,
+          areaSqm: reviewAreaSqm,
+          bedrooms: reviewBedrooms,
+          bathrooms: reviewBathrooms,
+          floor: reviewFloor,
+          furnishing: reviewFurnishing,
+          notes: reviewDescription,
+          lat: reviewLat,
+          lng: reviewLng,
+          finalImages: reviewPhotos,
+          video360Url: reviewVideo360Url,
+          model3dUrl: reviewModel3dUrl,
+          livabilityScore: reviewLivabilityScore,
+          inspectorReport: reviewInspectorReport,
+          nearbyAmenities: reviewAmenities,
+        });
+        openToast(`تم حفظ التعديلات ورابط الـ 360° بنجاح 💾 (الوحدة لا تزال قيد المراجعة ولا تظهر للطلاب حتى الاعتماد)`);
+        refreshAll();
+        setActionModal(null);
+        setSelectedInspection(null);
+      } catch (err: any) {
+        console.error("Failed to save inspection review:", err);
+        openToast(err?.message || "تعذر حفظ التعديلات");
+      }
+    } else if (editingProperty) {
+      try {
+        await updateApartmentApi(editingProperty.id, {
+          title: reviewTitle,
+          pricePerMonth: reviewPrice,
+          city: reviewCity,
+          address: reviewAddress,
+          university: reviewUniversity,
+          roomType: reviewRoomType,
+          areaSqm: reviewAreaSqm,
+          bedrooms: reviewBedrooms,
+          bathrooms: reviewBathrooms,
+          floor: reviewFloor,
+          furnishing: reviewFurnishing,
+          description: reviewDescription,
+          lat: reviewLat,
+          lng: reviewLng,
+          images: reviewPhotos,
+          video360Url: reviewVideo360Url,
+          model3dUrl: reviewModel3dUrl,
+          livabilityScore: reviewLivabilityScore,
+          nearbyAmenities: reviewAmenities,
+        });
+        openToast(`تم حفظ التعديلات بنجاح 💾 (حالة العقار: ${editingProperty.status})`);
+        refreshAll();
+        setEditingProperty(null);
+      } catch (err: any) {
+        console.error("Failed to save property edit:", err);
+        openToast(err?.message || "تعذر حفظ التعديلات");
+      }
+    }
+  };
+
+  const handleApproveAndPublish = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    if (!reviewLat || !reviewLng) {
+      openToast("⚠️ تعذر الاعتماد والنشر: يجب تحديد موقع العقار على الخريطة أولاً!");
+      return;
+    }
+
+    if (!reviewPhotos || reviewPhotos.length === 0) {
+      openToast("⚠️ تعذر الاعتماد والنشر: يجب إرفاق صورة واحدة على الأقل للعقار!");
+      return;
+    }
+
+    if (!reviewTitle || !reviewPrice) {
+      openToast("⚠️ تعذر الاعتماد والنشر: يرجى استكمال عنوان وسعر العقار!");
+      return;
+    }
+
+    if (selectedInspection) {
+      try {
+        const res = await publishInspectionApi(selectedInspection.id, {
+          title: reviewTitle,
+          pricePerMonth: reviewPrice,
+          city: reviewCity,
+          address: reviewAddress,
+          university: reviewUniversity,
+          roomType: reviewRoomType,
+          areaSqm: reviewAreaSqm,
+          bedrooms: reviewBedrooms,
+          bathrooms: reviewBathrooms,
+          floor: reviewFloor,
+          furnishing: reviewFurnishing,
+          notes: reviewDescription,
+          lat: reviewLat,
+          lng: reviewLng,
+          finalImages: reviewPhotos,
+          video360Url: reviewVideo360Url,
+          model3dUrl: reviewModel3dUrl,
+          livabilityScore: reviewLivabilityScore,
+          inspectorReport: reviewInspectorReport,
+          nearbyAmenities: reviewAmenities,
+        });
+
+        activateAndPublishProperty(selectedInspection.id, {
+          livabilityScore: reviewLivabilityScore,
+          video360Url: reviewVideo360Url,
+          inspectorReport: reviewInspectorReport,
+          nearbyAmenities: reviewAmenities,
+        });
+
+        openToast(`🎉 تم اعتماد ونشر "${reviewTitle}" رسمياً للطلاب!`);
+
+        if (res?.whatsappUrl && res?.whatsappMessage) {
+          setWhatsappInfoModal({
+            url: res.whatsappUrl,
+            msg: res.whatsappMessage,
+            ownerPhone: selectedInspection.ownerPhone || "01000000000",
+          });
+        }
+
+        refreshAll();
+        setActionModal(null);
+        setSelectedInspection(null);
+      } catch (err: any) {
+        console.error("Failed to publish inspection:", err);
+        openToast(err?.message || "تعذر اعتماد ونشر العقار");
+      }
+    } else if (editingProperty) {
+      try {
+        await updateApartmentApi(editingProperty.id, {
+          title: reviewTitle,
+          pricePerMonth: reviewPrice,
+          city: reviewCity,
+          address: reviewAddress,
+          university: reviewUniversity,
+          roomType: reviewRoomType,
+          areaSqm: reviewAreaSqm,
+          bedrooms: reviewBedrooms,
+          bathrooms: reviewBathrooms,
+          floor: reviewFloor,
+          furnishing: reviewFurnishing,
+          description: reviewDescription,
+          lat: reviewLat,
+          lng: reviewLng,
+          images: reviewPhotos,
+          video360Url: reviewVideo360Url,
+          model3dUrl: reviewModel3dUrl,
+          livabilityScore: reviewLivabilityScore,
+          nearbyAmenities: reviewAmenities,
+          status: "متاح",
+          verified: true,
+        });
+
+        await approveApartmentApi(editingProperty.id);
+
+        openToast(`🎉 تم اعتماد ونشر "${reviewTitle}" رسمياً للطلاب!`);
+        refreshAll();
+        setEditingProperty(null);
+      } catch (err: any) {
+        console.error("Failed to approve property:", err);
+        openToast(err?.message || "تعذر اعتماد ونشر العقار");
+      }
+    }
+  };
 
   // مؤشرات العقارات
   const totalProperties = properties.length;
@@ -497,6 +799,8 @@ export function AdminInspectionPortal({
         status: editingProperty.status,
         livabilityScore: editingProperty.livabilityScore,
         video360Url: editingProperty.video360Url,
+        lat: editingProperty.lat,
+        lng: editingProperty.lng,
         nearbyAmenities: editingProperty.nearbyAmenities,
       });
     } catch (err) {
@@ -1121,11 +1425,12 @@ export function AdminInspectionPortal({
                       {prop.status === "قيد المراجعة" && (
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleApproveProperty(prop.id, prop.title)}
-                            className="flex-1 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
-                            data-testid={`admin-btn-approve-${prop.id}`}
+                            onClick={() => openPropertyReviewModal(prop)}
+                            className="flex-1 rounded-xl bg-primary py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                            data-testid={`admin-btn-review-${prop.id}`}
                           >
-                            اعتماد ونشر للطلاب ✓
+                            <Eye size={14} />
+                            مراجعة وفحص العقار
                           </button>
                           <button
                             onClick={() => handleRejectProperty(prop.id, prop.title)}
@@ -1140,10 +1445,10 @@ export function AdminInspectionPortal({
                       {prop.status === "مرفوض" && (
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleApproveProperty(prop.id, prop.title)}
+                            onClick={() => openPropertyReviewModal(prop)}
                             className="flex-1 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm"
                           >
-                            إعادة الاعتماد والنشر ✓
+                            إعادة مراجعة والاعتماد ✓
                           </button>
                         </div>
                       )}
@@ -1161,11 +1466,11 @@ export function AdminInspectionPortal({
 
                       <div className="flex items-center justify-between text-xs pt-1">
                         <button
-                          onClick={() => setEditingProperty(prop)}
+                          onClick={() => openPropertyReviewModal(prop)}
                           className="flex items-center gap-1 text-primary hover:underline font-semibold"
                         >
                           <Edit3 size={13} />
-                          تعديل البيانات
+                          تعديل وتحديد الموقع
                         </button>
                         <button
                           onClick={() => handleDeleteProperty(prop.id, prop.title)}
@@ -1436,17 +1741,14 @@ export function AdminInspectionPortal({
                         </button>
                       )}
 
-                      {(insp.status === "scheduled" || insp.status === "inspected") && (
+                      {(insp.status === "scheduled" || insp.status === "inspected" || insp.status === "pending") && (
                         <button
-                          onClick={() => {
-                            setSelectedInspection(insp);
-                            setActivationAmenities(getEffectiveAmenities(insp));
-                            setActionModal("activate");
-                          }}
-                          className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-700"
+                          onClick={() => openInspectionReviewModal(insp)}
+                          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow hover:bg-primary/90"
+                          data-testid={`admin-btn-review-inspection-${insp.id}`}
                         >
-                          <Video size={14} />
-                          رفع 360° وتفعيل النشر للطلاب
+                          <Eye size={14} />
+                          فحص ومراجعة العقار (360°)
                         </button>
                       )}
 
@@ -1584,7 +1886,7 @@ export function AdminInspectionPortal({
 
                   <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                     <button
-                      onClick={() => setEditingProperty(prop)}
+                      onClick={() => openPropertyReviewModal(prop)}
                       className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-foreground hover:bg-muted"
                       data-testid={`btn-edit-prop-${prop.id}`}
                     >
@@ -2895,39 +3197,80 @@ export function AdminInspectionPortal({
         )}
       </main>
 
-      {/* Modal: تعديل بيانات عقار منشور */}
+      {/* Modal: Unified Property & Inspection Review Workspace */}
       <StandardModal
-        isOpen={Boolean(editingProperty)}
-        onClose={() => setEditingProperty(null)}
-        maxWidthClassName="max-w-xl"
-        title={`تعديل بيانات العقار (${editingProperty ? `#${editingProperty.id}` : ""})`}
-        subtitle="التعديلات تظهر فوراً للطلاب في الواجهة الرئيسية للمنصة"
-        testId="admin-modal-edit-property"
-        closeButtonAriaLabel="إغلاق نافذة تعديل العقار"
+        isOpen={(actionModal === "activate" && Boolean(selectedInspection)) || Boolean(editingProperty)}
+        onClose={() => {
+          setActionModal(null);
+          setEditingProperty(null);
+          setSelectedInspection(null);
+        }}
+        maxWidthClassName="max-w-4xl"
+        title={selectedInspection ? "نافذة فحص ومراجعة طلب المعاينة والـ 360°" : "نافذة مراجعة وتعديل بيانات العقار"}
+        subtitle="مراجعة وتحديث تفاصيل السكن، تحديد الموقع على الخريطة، رفع وتعديل الصور والجولة الافتراضية والخدمات المحيطة"
+        testId="admin-modal-review-workspace"
+        closeButtonAriaLabel="إغلاق نافذة المراجعة"
       >
-        {editingProperty ? (
-          <div>
-            <form onSubmit={handleSavePropertyEdit} className="space-y-4 text-xs">
+        <div className="space-y-6 text-xs max-h-[80vh] overflow-y-auto px-1 pr-2">
+          {/* شريط معلومات العقار/المعاينة */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-3.5">
+            <div className="flex items-center gap-2.5">
+              <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <Building2 size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-foreground text-sm">
+                    {reviewTitle || "عقار بدون عنوان"}
+                  </span>
+                  <span className="rounded-md bg-background px-2 py-0.5 text-[10px] font-bold text-primary border border-primary/20">
+                    {selectedInspection ? `طلب معاينة #${selectedInspection.id}` : `عقار #${editingProperty?.id}`}
+                  </span>
+                </div>
+                <p className="text-muted-foreground text-[11px] mt-0.5">
+                  {reviewAddress || "لم يحدد العنوان"} • {reviewCity || "لم تحدد المدينة"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-xl bg-primary/10 px-3 py-1 font-extrabold text-primary text-xs">
+                {reviewPrice} جنيه / شهرياً
+              </span>
+              <span className="rounded-xl bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-600">
+                الحالة: {selectedInspection ? selectedInspection.status : editingProperty?.status || "قيد المراجعة"}
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+            {/* 1. البيانات الأساسية والخصائص */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <h4 className="font-extrabold text-foreground text-xs flex items-center gap-1.5 border-b border-border pb-2">
+                <FileText size={15} className="text-primary" />
+                البيانات التفصيلية للشقة والخصائص الأساسية
+              </h4>
+
               <div>
                 <label className="block font-bold text-foreground mb-1">عنوان الوحدة (Title):</label>
                 <input
                   type="text"
                   required
-                  value={editingProperty.title}
-                  onChange={(e) => setEditingProperty({ ...editingProperty, title: e.target.value })}
+                  value={reviewTitle}
+                  onChange={(e) => setReviewTitle(e.target.value)}
+                  placeholder="عنوان تسويقي واضح للعقار..."
                   className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-foreground mb-1">الإيجار الشهري (جنيه):</label>
                   <input
                     type="number"
                     required
-                    value={editingProperty.pricePerMonth}
-                    onChange={(e) => setEditingProperty({ ...editingProperty, pricePerMonth: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
+                    value={reviewPrice}
+                    onChange={(e) => setReviewPrice(Number(e.target.value))}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary font-bold text-primary"
                   />
                 </div>
                 <div>
@@ -2935,8 +3278,18 @@ export function AdminInspectionPortal({
                   <input
                     type="text"
                     required
-                    value={editingProperty.university}
-                    onChange={(e) => setEditingProperty({ ...editingProperty, university: e.target.value })}
+                    value={reviewUniversity}
+                    onChange={(e) => setReviewUniversity(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-foreground mb-1">المدينة / المركز:</label>
+                  <input
+                    type="text"
+                    required
+                    value={reviewCity}
+                    onChange={(e) => setReviewCity(e.target.value)}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
                   />
                 </div>
@@ -2947,88 +3300,327 @@ export function AdminInspectionPortal({
                 <input
                   type="text"
                   required
-                  value={editingProperty.address}
-                  onChange={(e) => setEditingProperty({ ...editingProperty, address: e.target.value })}
+                  value={reviewAddress}
+                  onChange={(e) => setReviewAddress(e.target.value)}
                   className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
                 />
               </div>
 
-              <div>
-                <label className="block font-bold text-foreground mb-1">رابط جولة الـ 360° الافتراضية:</label>
-                <input
-                  type="url"
-                  value={editingProperty.video360Url || ""}
-                  onChange={(e) => setEditingProperty({ ...editingProperty, video360Url: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-bold text-foreground mb-1">نوع السكن:</label>
+                  <select
+                    value={reviewRoomType}
+                    onChange={(e) => setReviewRoomType(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
+                  >
+                    <option value="شقة كاملة">شقة كاملة</option>
+                    <option value="استوديو">استوديو</option>
+                    <option value="غرفة فردية">غرفة فردية</option>
+                    <option value="غرفة مزدوجة">غرفة مزدوجة</option>
+                    <option value="سرير في غرفة">سرير في غرفة</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block font-bold text-foreground mb-1">المساحة (م²):</label>
                   <input
                     type="number"
-                    value={editingProperty.areaSqm}
-                    onChange={(e) => setEditingProperty({ ...editingProperty, areaSqm: Number(e.target.value) })}
+                    value={reviewAreaSqm}
+                    onChange={(e) => setReviewAreaSqm(Number(e.target.value))}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-foreground mb-1">مؤشر الجودة (%):</label>
+                  <label className="block font-bold text-foreground mb-1">عدد الغرف:</label>
                   <input
                     type="number"
-                    min={60}
-                    max={100}
-                    value={editingProperty.livabilityScore}
-                    onChange={(e) => setEditingProperty({ ...editingProperty, livabilityScore: Number(e.target.value) })}
+                    value={reviewBedrooms}
+                    onChange={(e) => setReviewBedrooms(Number(e.target.value))}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-foreground mb-1">حالة الوحدة:</label>
-                  <select
-                    value={editingProperty.status || "متاح"}
-                    onChange={(e) => setEditingProperty({ ...editingProperty, status: e.target.value as any })}
+                  <label className="block font-bold text-foreground mb-1">عدد الحمامات:</label>
+                  <input
+                    type="number"
+                    value={reviewBathrooms}
+                    onChange={(e) => setReviewBathrooms(Number(e.target.value))}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
-                  >
-                    <option value="متاح">متاح للحجز</option>
-                    <option value="مشغول">مشغول / محجوز</option>
-                  </select>
+                  />
                 </div>
               </div>
 
-              {/* إدارة وتفاصيل المنطقة المحيطة (Nearby Amenities Control) */}
-              <NearbyAmenitiesForm
-                amenities={getEffectiveAmenities(editingProperty)}
-                onChange={(updated) =>
-                  setEditingProperty({
-                    ...editingProperty,
-                    nearbyAmenities: updated,
-                  })
-                }
-                city={editingProperty.city}
-                university={editingProperty.university}
-              />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-foreground mb-1">الطابق / الدور:</label>
+                  <input
+                    type="text"
+                    value={reviewFloor}
+                    onChange={(e) => setReviewFloor(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-foreground mb-1">مستوى الفرش:</label>
+                  <input
+                    type="text"
+                    value={reviewFurnishing}
+                    onChange={(e) => setReviewFurnishing(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
 
-              <div className="flex justify-end gap-2 pt-4">
+              <div>
+                <label className="block font-bold text-foreground mb-1">الوصف والملاحظات الإضافية:</label>
+                <textarea
+                  rows={2}
+                  value={reviewDescription}
+                  onChange={(e) => setReviewDescription(e.target.value)}
+                  placeholder="تفاصيل إضافية حول السكن والخدمات المتاحة..."
+                  className="w-full rounded-xl border border-border bg-background p-3 text-xs outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            {/* 2. موقع العقار على الخريطة */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-border pb-2">
+                <h4 className="font-extrabold text-foreground text-xs flex items-center gap-1.5">
+                  <MapPin size={15} className="text-primary" />
+                  تحديد موقع العقار الجغرافي على الخريطة (Leaflet & OpenStreetMap)
+                </h4>
+                {reviewLat && reviewLng ? (
+                  <span className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 size={12} />
+                    تم التحديد: ({reviewLat.toFixed(4)}, {reviewLng.toFixed(4)})
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold text-amber-600 flex items-center gap-1">
+                    <AlertCircle size={12} />
+                    يحتاج تحديد الموقع
+                  </span>
+                )}
+              </div>
+
+              {(!reviewLat || !reviewLng) && (
+                <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  <AlertCircle size={16} className="shrink-0" />
+                  <span>⚠️ يتطلب العقار تحديد الإحداثيات الجغرافية على الخريطة. يرجى الضغط على الخريطة أو سحب الدبوس لتعيين الموقع الدقيق قبل الاعتماد.</span>
+                </div>
+              )}
+
+              <PropertyLocationPicker
+                initialLat={reviewLat}
+                initialLng={reviewLng}
+                city={reviewCity}
+                university={reviewUniversity}
+                onLocationChange={(coords) => {
+                  setReviewLat(coords.lat);
+                  setReviewLng(coords.lng);
+                }}
+              />
+            </div>
+
+            {/* 3. إدارة صور العقار المعروضة */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-border pb-2">
+                <h4 className="font-extrabold text-foreground text-xs flex items-center gap-1.5">
+                  <ImageIcon size={15} className="text-primary" />
+                  معرض صور المعاينة والعقار ({reviewPhotos.length} صورة)
+                </h4>
+
+                <label className="cursor-pointer rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary flex items-center gap-1.5 hover:bg-primary/20 transition-colors">
+                  <Upload size={14} />
+                  {isUploadingReviewPhotos ? "جاري الرفع..." : "إضافة صور جديدة"}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleReviewPhotosUpload}
+                    disabled={isUploadingReviewPhotos}
+                  />
+                </label>
+              </div>
+
+              {reviewPhotos.length === 0 ? (
+                <div className="p-6 text-center border border-dashed border-border rounded-xl">
+                  <ImageIcon size={28} className="mx-auto text-muted-foreground mb-1.5" />
+                  <p className="font-bold text-foreground text-xs">لا توجد صور مرفقة حتى الآن</p>
+                  <p className="text-[10px] text-muted-foreground">اضغط على زر "إضافة صور جديدة" لإرفاق صور المعاينة الحقيقية.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {reviewPhotos.map((photoUrl, idx) => (
+                    <div key={idx} className="relative group rounded-xl border border-border overflow-hidden h-28 bg-muted">
+                      <img src={photoUrl} alt={`صورة ${idx + 1}`} className="w-full h-full object-cover" />
+                      {idx === 0 && (
+                        <span className="absolute top-1 right-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[9px] font-bold text-white shadow">
+                          الغلاف الرئيسي 📸
+                        </span>
+                      )}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReviewPhoto(idx)}
+                            className="rounded-lg bg-rose-600 p-1 text-white hover:bg-rose-700"
+                            title="حذف الصورة"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        {idx !== 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetCoverPhoto(idx)}
+                            className="w-full rounded-lg bg-white/90 dark:bg-black/80 py-1 text-[9px] font-bold text-foreground hover:bg-white"
+                          >
+                            تعيين كغلاف رئيسي
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 4. الجولة الافتراضية 360° والموديل ثلاثي الأبعاد */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <h4 className="font-extrabold text-foreground text-xs flex items-center gap-1.5 border-b border-border pb-2">
+                <Video size={15} className="text-primary" />
+                الجولة الافتراضية 360° والموديل ثلاثي الأبعاد (Virtual Tour & 3D Model)
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-foreground mb-1">
+                    رابط جولة الـ 360° الافتراضية:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="url"
+                      value={reviewVideo360Url}
+                      onChange={(e) => setReviewVideo360Url(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs pl-8 outline-none focus:border-primary"
+                    />
+                    <Video size={14} className="absolute left-2.5 top-3 text-muted-foreground" />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-1 block">رابط الجولة التفاعلية ثلاثية الأبعاد</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-foreground mb-1">
+                    رابط النموذج ثلاثي الأبعاد 3D Model (اختياري):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="url"
+                      value={reviewModel3dUrl}
+                      onChange={(e) => setReviewModel3dUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs pl-8 outline-none focus:border-primary"
+                    />
+                    <Layers size={14} className="absolute left-2.5 top-3 text-muted-foreground" />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-1 block">رابط مجسم السكن المخطط 3D</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. تقرير المفتش الميداني ومؤشر جودة المعيشة */}
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <h4 className="font-extrabold text-foreground text-xs flex items-center gap-1.5 border-b border-border pb-2">
+                <ShieldCheck size={15} className="text-primary" />
+                تقرير المفتش الميداني ومؤشر جودة المعيشة (Livability Score)
+              </h4>
+
+              <div>
+                <label className="block font-bold text-foreground mb-1">
+                  مؤشر جودة المعيشة المعايير الميدانية (%):
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={70}
+                    max={99}
+                    value={reviewLivabilityScore}
+                    onChange={(e) => setReviewLivabilityScore(Number(e.target.value))}
+                    className="flex-1 accent-primary"
+                  />
+                  <span className="rounded-lg bg-emerald-500/10 px-3 py-1 font-bold text-emerald-600 text-sm">
+                    {reviewLivabilityScore}٪
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-foreground mb-1">
+                  تقرير مهندس المعاينة والتدقيق الميداني:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewInspectorReport}
+                  onChange={(e) => setReviewInspectorReport(e.target.value)}
+                  placeholder="ملاحظات المهندس حول السلامة، التهوية، جودة الأثاث والنظافة..."
+                  className="w-full rounded-xl border border-border bg-background p-3 text-xs outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            {/* 6. خدمات ومعالم المنطقة المحيطة */}
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <NearbyAmenitiesForm
+                amenities={reviewAmenities || getEffectiveAmenities(selectedInspection || editingProperty)}
+                onChange={(upd) => setReviewAmenities(upd)}
+                city={reviewCity}
+                university={reviewUniversity}
+                propertyLat={reviewLat}
+                propertyLng={reviewLng}
+              />
+            </div>
+
+            {/* شريط الإجراءات والزرين الأساسيين */}
+            <div className="sticky bottom-0 bg-background/95 backdrop-blur-md pt-3 pb-1 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setActionModal(null);
+                  setEditingProperty(null);
+                  setSelectedInspection(null);
+                }}
+                className="w-full sm:w-auto rounded-xl border border-border px-4 py-2.5 text-xs font-bold text-muted-foreground hover:bg-muted"
+              >
+                إلغاء وإغلاق
+              </button>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => setEditingProperty(null)}
-                  className="rounded-xl border border-border px-4 py-2.5 text-xs font-bold text-muted-foreground"
+                  onClick={handleSaveReviewOnly}
+                  className="w-full sm:w-auto rounded-xl border border-primary/40 bg-primary/10 px-5 py-2.5 text-xs font-bold text-primary hover:bg-primary/20 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                  data-testid="admin-btn-save-review-only"
                 >
-                  إلغاء
+                  <FileText size={15} />
+                  حفظ التعديلات (بدون نشر)
                 </button>
+
                 <button
-                  type="submit"
-                  className="rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow"
+                  type="button"
+                  onClick={handleApproveAndPublish}
+                  className="w-full sm:w-auto rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow flex items-center justify-center gap-1.5"
+                  data-testid="admin-btn-approve-publish-final"
                 >
-                  حفظ وتحديث العقار الآن
+                  <CheckCircle2 size={16} />
+                  ✅ اعتماد ونشر للطلاب
                 </button>
               </div>
-            </form>
-          </div>
-        ) : null}
+            </div>
+          </form>
+        </div>
       </StandardModal>
 
       {/* Modal: إضافة عقار جديد للكتالوج مباشرة */}
@@ -3259,110 +3851,6 @@ export function AdminInspectionPortal({
                 className="rounded-xl bg-primary px-5 py-2 text-xs font-bold text-primary-foreground shadow"
               >
                 حفظ وتأكيد الموعد
-              </button>
-            </div>
-          </form>
-        </div>
-      </StandardModal>
-
-      {/* Modal: تفعيل العقار ونشره مع 360° */}
-      <StandardModal
-        isOpen={actionModal === "activate" && Boolean(selectedInspection)}
-        onClose={() => setActionModal(null)}
-        maxWidthClassName="max-w-3xl"
-        title="تفعيل الوحدة ونشرها للطلاب مع جولة 360°"
-        subtitle="تأكيد فحص العقار على الطبيعة وإدخال رابط الجولة الافتراضية ومعدل الجودة لنشره فوراً في الكتالوج العام"
-        testId="admin-modal-activate-inspection"
-        closeButtonAriaLabel="إغلاق نافذة التفعيل"
-      >
-        <div>
-          <div className="flex items-center gap-2 mb-3 text-emerald-600 font-bold text-xs">
-            <Sparkles size={16} />
-            نزول المعاينة الفعلية وتفعيل العقار
-          </div>
-
-          <form onSubmit={handleActivateSubmit} className="space-y-4 text-xs">
-            <div>
-              <label className="block font-bold text-foreground mb-1">
-                تقييم جودة المعيشة (Livability Score ٪):
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={70}
-                  max={99}
-                  value={livabilityScore}
-                  onChange={(e) => setLivabilityScore(Number(e.target.value))}
-                  className="flex-1 accent-primary"
-                />
-                <span className="rounded-lg bg-emerald-500/10 px-3 py-1 font-bold text-emerald-600 text-sm">
-                  {livabilityScore}٪
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-bold text-foreground mb-1">
-                رابط جولة الـ 360° الافتراضية (Virtual 360 Tour):
-              </label>
-              <div className="relative">
-                <input
-                  required
-                  type="url"
-                  value={video360Url}
-                  onChange={(e) => setVideo360Url(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs pl-8 outline-none focus:border-primary"
-                />
-                <Video size={14} className="absolute left-2.5 top-3 text-muted-foreground" />
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-1 block">رابط الجولة ثلاثية الأبعاد المصورة بمعرفة فريق مكاني</span>
-            </div>
-
-            <div>
-              <label className="block font-bold text-foreground mb-1">
-                تقرير مهندس المعاينة الميدانية:
-              </label>
-              <textarea
-                rows={3}
-                value={inspectorReport}
-                onChange={(e) => setInspectorReport(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background p-3 text-xs outline-none focus:border-primary"
-              />
-            </div>
-
-            {/* تقييمات مكاني وإدارة المنطقة المحيطة */}
-            {selectedInspection && (
-              <div className="border-t border-border pt-3">
-                <NearbyAmenitiesForm
-                  amenities={activationAmenities || getEffectiveAmenities(selectedInspection)}
-                  onChange={(upd) => setActivationAmenities(upd)}
-                  city={selectedInspection.city}
-                  university={selectedInspection.university}
-                  propertyLat={selectedInspection.lat ? Number(selectedInspection.lat) : undefined}
-                  propertyLng={selectedInspection.lng ? Number(selectedInspection.lng) : undefined}
-                />
-              </div>
-            )}
-
-            <div className="rounded-xl bg-emerald-500/10 p-3 text-[11px] text-emerald-800 dark:text-emerald-300 leading-5">
-              ✓ عند الضغط على "تفعيل ونشر"، سيظهر العقار مباشرة لجميع الطلاب في صفحة "اكتشف السكن" كعقار موثق بمعاينة ميدانية مع تقييمات مكاني المعتمدة للخدمات.
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setActionModal(null)}
-                className="rounded-xl border border-border px-4 py-2.5 text-xs font-bold text-muted-foreground"
-              >
-                إلغاء
-              </button>
-              <button
-                type="submit"
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-700 transition-colors"
-              >
-                <Check size={16} />
-                تفعيل ونشر على المنصة للطلاب الآن
               </button>
             </div>
           </form>

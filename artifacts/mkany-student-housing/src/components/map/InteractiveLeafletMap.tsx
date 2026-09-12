@@ -67,10 +67,41 @@ export function InteractiveLeafletMap({
   const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // حساب الإحداثيات الأساسية للعقار
-  const defaultCityCoord = getCityDefaultCoordinates(city, university);
-  const effectivePropLat = propertyLat || defaultCityCoord.lat;
-  const effectivePropLng = propertyLng || defaultCityCoord.lng;
+  // Check if location is missing or invalid
+  const hasValidLocation =
+    propertyLat !== undefined &&
+    propertyLng !== undefined &&
+    propertyLat !== null &&
+    propertyLng !== null &&
+    !isNaN(propertyLat) &&
+    !isNaN(propertyLng) &&
+    propertyLat >= -90 &&
+    propertyLat <= 90 &&
+    propertyLng >= -180 &&
+    propertyLng <= 180;
+
+  if (!hasValidLocation) {
+    return (
+      <div
+        className={`rounded-2xl border border-amber-300 bg-amber-50/60 p-8 text-center ${className}`}
+        id="osm-interactive-map-section"
+        data-testid="interactive-leaflet-map-missing"
+      >
+        <div className="flex flex-col items-center justify-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+            <MapPin size={24} />
+          </div>
+          <h4 className="text-base font-bold text-amber-900">يحتاج تحديد الموقع</h4>
+          <p className="text-xs text-amber-800/80 max-w-sm leading-relaxed">
+            عذراً، هذا العقار ليس له إحداثيات جغرافية دقيقة مسجلة بعد. يرجى تحديث موقع العقار لتفعيل الخريطة والخدمات المحيطة.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const effectivePropLat = propertyLat;
+  const effectivePropLng = propertyLng;
 
   // قائمة الخدمات المحيطة مع إحداثياتها
   const amenitiesList = getAmenitiesDisplayList(amenities, effectivePropLat, effectivePropLng);

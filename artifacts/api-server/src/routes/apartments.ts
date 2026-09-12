@@ -7,7 +7,7 @@ import { getAuth } from "@clerk/express";
 import { ensureSeedApartments } from "../lib/seed-apartments";
 import { createNotification } from "../lib/notifications-helper";
 import { resolveAndExtractMapLink, isValidCoordinate } from "../lib/link-parser";
-import { fetchNearbyAmenitiesFromOverpass } from "../lib/overpass";
+import { fetchNearbyAmenitiesFromOverpass, invalidateOverpassCache } from "../lib/overpass";
 import { validateAmenitiesRatings, persistServiceRating } from "../lib/rating-validator";
 
 const router = Router();
@@ -529,6 +529,24 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
 
     const isAdmin = dbUser.role === "admin" || dbUser.role === "super_admin";
 
+    // Always persist lat/lng if provided
+    if (lat !== undefined && lng !== undefined) {
+      updatePayload.lat = lat;
+      updatePayload.lng = lng;
+      if (existing.lat !== lat || existing.lng !== lng || req.body.nearbyAmenities === undefined) {
+        try {
+          invalidateOverpassCache(existing.lat, existing.lng);
+          invalidateOverpassCache(lat, lng);
+          const freshAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+          if (req.body.nearbyAmenities === undefined) {
+            updatePayload.nearbyAmenities = freshAmenities;
+          }
+        } catch (overpassErr) {
+          console.error("Failed to fetch amenities from Overpass during patch:", overpassErr);
+        }
+      }
+    }
+
     // Handle nearbyAmenities and Mkany Admin ratings
     if (req.body.nearbyAmenities !== undefined) {
       if (!isAdmin) {
@@ -555,14 +573,6 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
         } catch (persistErr) {
           req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
         }
-      }
-    } else if (lat !== undefined && lng !== undefined) {
-      updatePayload.lat = lat;
-      updatePayload.lng = lng;
-      try {
-        updatePayload.nearbyAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
-      } catch (overpassErr) {
-        console.error("Failed to fetch amenities from Overpass during patch:", overpassErr);
       }
     }
 
