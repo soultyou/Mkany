@@ -60,6 +60,8 @@ export async function ensureSeedApartments() {
         premium: true,
         livabilityScore: 87,
         status: "متاح",
+        lat: 31.1107,
+        lng: 30.9388,
       },
       {
         id: 2,
@@ -88,6 +90,8 @@ export async function ensureSeedApartments() {
         premium: false,
         livabilityScore: 92,
         status: "متاح",
+        lat: 31.1152,
+        lng: 30.9422,
       },
       {
         id: 3,
@@ -116,6 +120,8 @@ export async function ensureSeedApartments() {
         premium: true,
         livabilityScore: 95,
         status: "متاح",
+        lat: 31.0425,
+        lng: 31.3571,
       },
       {
         id: 4,
@@ -144,6 +150,8 @@ export async function ensureSeedApartments() {
         premium: false,
         livabilityScore: 84,
         status: "متاح",
+        lat: 30.8001,
+        lng: 30.9995,
       },
       {
         id: 5,
@@ -172,6 +180,8 @@ export async function ensureSeedApartments() {
         premium: true,
         livabilityScore: 89,
         status: "متاح",
+        lat: 31.0550,
+        lng: 31.3900,
       },
       {
         id: 6,
@@ -200,11 +210,23 @@ export async function ensureSeedApartments() {
         premium: false,
         livabilityScore: 81,
         status: "متاح",
+        lat: 31.1120,
+        lng: 30.9450,
       },
     ]).onConflictDoNothing();
 
     // 3. Advance sequence
     await db.execute(sql`SELECT setval('apartments_id_seq', (SELECT GREATEST(MAX(id), 6) FROM apartments));`);
+
+    // 4. Ensure coordinates are set for existing base apartments
+    await db.execute(sql`
+      UPDATE apartments SET lat = 31.1107, lng = 30.9388 WHERE id = 1 AND (lat IS NULL OR lng IS NULL);
+      UPDATE apartments SET lat = 31.1152, lng = 30.9422 WHERE id = 2 AND (lat IS NULL OR lng IS NULL);
+      UPDATE apartments SET lat = 31.0425, lng = 31.3571 WHERE id = 3 AND (lat IS NULL OR lng IS NULL);
+      UPDATE apartments SET lat = 30.8001, lng = 30.9995 WHERE id = 4 AND (lat IS NULL OR lng IS NULL);
+      UPDATE apartments SET lat = 31.0550, lng = 31.3900 WHERE id = 5 AND (lat IS NULL OR lng IS NULL);
+      UPDATE apartments SET lat = 31.1120, lng = 30.9450 WHERE id = 6 AND (lat IS NULL OR lng IS NULL);
+    `);
 
     isSeeded = true;
   } catch (err) {

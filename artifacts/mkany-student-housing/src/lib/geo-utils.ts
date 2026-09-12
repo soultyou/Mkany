@@ -54,14 +54,10 @@ export function formatDistanceArabic(meters: number): string {
 }
 
 /**
- * حساب وقت المشي المستغرق (بناءً على متوسط سرعة مشي 4.8 كم/س = 80 متر/دقيقة)
+ * وقت المشي: غير منفذ في هذه المرحلة. يتم عرض النص المعتمد لعدم توليد أوقات مشي تقديرية وهمية.
  */
-export function formatWalkingTimeArabic(meters: number): string {
-  const minutes = Math.max(1, Math.round(meters / 80));
-  if (minutes === 1) return "دقيقة واحدة مشياً";
-  if (minutes === 2) return "دقيقتان مشياً";
-  if (minutes >= 3 && minutes <= 10) return `${minutes} دقائق مشياً`;
-  return `${minutes} دقيقة مشياً`;
+export function formatWalkingTimeArabic(_meters?: number): string {
+  return "بيانات مسار المشي غير متاحة";
 }
 
 /**

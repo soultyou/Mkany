@@ -41,12 +41,8 @@ export function formatDistanceArabic(meters: number): string {
   return `${km.replace(".", "٫")} كم`;
 }
 
-export function formatWalkingTimeArabic(meters: number): string {
-  const minutes = Math.max(1, Math.round(meters / 80));
-  if (minutes === 1) return "دقيقة واحدة مشياً";
-  if (minutes === 2) return "دقيقتان مشياً";
-  if (minutes >= 3 && minutes <= 10) return `${minutes} دقائق مشياً`;
-  return `${minutes} دقيقة مشياً`;
+export function formatWalkingTimeArabic(_meters?: number): string {
+  return "بيانات مسار المشي غير متاحة";
 }
 
 export function formatTransitTimeArabic(meters: number): string {

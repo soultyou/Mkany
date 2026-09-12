@@ -214,6 +214,7 @@ router.get("/amenities", async (req: Request, res: Response) => {
   try {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
+    const propertyId = Number(req.query.propertyId || req.query.apartmentId);
 
     if (!isValidCoordinate(lat, lng)) {
       res.status(400).json({
@@ -225,6 +226,18 @@ router.get("/amenities", async (req: Request, res: Response) => {
     }
 
     const amenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+
+    if (propertyId && !isNaN(propertyId)) {
+      try {
+        await db
+          .update(apartments)
+          .set({ nearbyAmenities: amenities, updatedAt: new Date() })
+          .where(eq(apartments.id, propertyId));
+      } catch (cacheErr) {
+        console.warn("Could not cache nearbyAmenities into apartment:", cacheErr);
+      }
+    }
+
     res.json({
       success: true,
       amenities,

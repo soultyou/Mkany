@@ -143,53 +143,6 @@ export function InteractiveLeafletMap({
       </div>
     `);
 
-    // إنشاء دبابيس الخدمات المحيطة
-    const newMarkers: { [key: string]: L.Marker } = {};
-
-    amenitiesList.forEach((amenity) => {
-      const aLat = amenity.lat ?? effectivePropLat;
-      const aLng = amenity.lng ?? effectivePropLng;
-
-      const markerColor =
-        amenity.iconType === "universityGate"
-          ? "bg-purple-600 text-white"
-          : amenity.iconType === "hospital"
-          ? "bg-rose-600 text-white"
-          : amenity.iconType === "pharmacy"
-          ? "bg-emerald-600 text-white"
-          : amenity.iconType === "transportation"
-          ? "bg-blue-600 text-white"
-          : amenity.iconType === "supermarket"
-          ? "bg-amber-600 text-white"
-          : "bg-orange-600 text-white";
-
-      const pinHtml = `
-        <div class="group relative flex flex-col items-center cursor-pointer transition-transform hover:scale-110">
-          <div class="flex items-center gap-1 ${markerColor} px-2 py-0.5 rounded-md shadow-md border border-white text-[11px] font-bold whitespace-nowrap">
-            <span>${amenity.categoryName}</span>
-          </div>
-          <div class="w-2 h-2 -mt-1 rotate-45 ${markerColor}"></div>
-        </div>
-      `;
-
-      const m = L.marker([aLat, aLng], {
-        icon: L.divIcon({
-          html: pinHtml,
-          className: "custom-amenity-pin",
-          iconSize: [80, 32],
-          iconAnchor: [40, 16],
-        }),
-      }).addTo(map);
-
-      m.on("click", () => {
-        handleSelectAmenity(amenity);
-      });
-
-      newMarkers[amenity.key] = m;
-    });
-
-    markersRef.current = newMarkers;
-
     // تصحيح أبعاد الخريطة بعد التحميل
     setTimeout(() => {
       map.invalidateSize();
@@ -273,6 +226,64 @@ export function InteractiveLeafletMap({
     },
     [effectivePropLat, effectivePropLng, onSelectAmenity]
   );
+
+  // رسم وتحديث دبابيس الخدمات الحية بمجرد وصول بيانات OpenStreetMap
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // مسح الدبابيس السابقة
+    Object.values(markersRef.current).forEach((marker) => {
+      map.removeLayer(marker);
+    });
+    markersRef.current = {};
+
+    const newMarkers: { [key: string]: L.Marker } = {};
+
+    amenitiesList.forEach((amenity) => {
+      const aLat = amenity.lat ?? effectivePropLat;
+      const aLng = amenity.lng ?? effectivePropLng;
+
+      const markerColor =
+        amenity.iconType === "universityGate"
+          ? "bg-purple-600 text-white"
+          : amenity.iconType === "hospital"
+          ? "bg-rose-600 text-white"
+          : amenity.iconType === "pharmacy"
+          ? "bg-emerald-600 text-white"
+          : amenity.iconType === "transportation"
+          ? "bg-blue-600 text-white"
+          : amenity.iconType === "supermarket"
+          ? "bg-amber-600 text-white"
+          : "bg-orange-600 text-white";
+
+      const pinHtml = `
+        <div class="group relative flex flex-col items-center cursor-pointer transition-transform hover:scale-110">
+          <div class="flex items-center gap-1 ${markerColor} px-2 py-0.5 rounded-md shadow-md border border-white text-[11px] font-bold whitespace-nowrap">
+            <span>${amenity.categoryName}</span>
+          </div>
+          <div class="w-2 h-2 -mt-1 rotate-45 ${markerColor}"></div>
+        </div>
+      `;
+
+      const m = L.marker([aLat, aLng], {
+        icon: L.divIcon({
+          html: pinHtml,
+          className: "custom-amenity-pin",
+          iconSize: [80, 32],
+          iconAnchor: [40, 16],
+        }),
+      }).addTo(map);
+
+      m.on("click", () => {
+        handleSelectAmenity(amenity);
+      });
+
+      newMarkers[amenity.key] = m;
+    });
+
+    markersRef.current = newMarkers;
+  }, [amenitiesList, effectivePropLat, effectivePropLng, handleSelectAmenity]);
 
   // تفعيل رسم المسار عند اختيار الخدمة الافتراضية لأول مرة
   useEffect(() => {
@@ -477,24 +488,26 @@ export function InteractiveLeafletMap({
               </button>
             </div>
 
-            {/* إحصائيات المسار بالأمتار والوقت */}
+            {/* إحصائيات المسافة والوقت */}
             <div className="mt-2.5 grid grid-cols-2 gap-2 rounded-lg bg-muted/60 p-2 text-xs">
               <div className="flex items-center gap-2">
                 <Footprints size={15} className="text-emerald-600 shrink-0" />
                 <div>
-                  <span className="block text-[10px] text-muted-foreground">مشياً على الأقدام</span>
+                  <span className="block text-[10px] text-muted-foreground">مسار المشي</span>
                   <strong className="text-xs text-foreground">
-                    {routeInfo ? routeInfo.walkTimeFormatted : activeItem.time}
+                    بيانات مسار المشي غير متاحة
                   </strong>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <Car size={15} className="text-blue-600 shrink-0" />
+                <MapPin size={15} className="text-primary shrink-0" />
                 <div>
-                  <span className="block text-[10px] text-muted-foreground">المسافة الدقيقة</span>
-                  <strong className="text-xs text-foreground">
-                    {routeInfo ? routeInfo.distanceFormatted : activeItem.distance}
+                  <span className="block text-[10px] text-muted-foreground">المسافة</span>
+                  <strong className="text-xs text-foreground truncate block">
+                    {activeItem.distance?.startsWith("المسافة الجغرافية:")
+                      ? activeItem.distance
+                      : `المسافة الجغرافية: ${activeItem.distance}`}
                   </strong>
                 </div>
               </div>
@@ -503,9 +516,7 @@ export function InteractiveLeafletMap({
             <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1 text-emerald-600 font-medium">
                 <CheckCircle2 size={12} />
-                {routeInfo?.isRealStreetRoute
-                  ? "مسار شوارع واقعي موثق"
-                  : "مسار مباشر بالانحناءات التقديرية"}
+                موقع موثق من OpenStreetMap
               </span>
               <a
                 href={osmUrl}

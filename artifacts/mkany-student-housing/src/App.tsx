@@ -51,19 +51,6 @@ type Property = {
   fees?: string | null;
 };
 
-const properties: Property[] = [
-  { id: 1, title: "غرفة مضيئة قرب الجلاء", address: "شارع الجلاء، كفر الشيخ", city: "كفر الشيخ", university: "جامعة كفر الشيخ", pricePerMonth: 950, roomType: "غرفة مزدوجة", areaSqm: 105, bedrooms: 3, bathrooms: 2, floor: "الثالث", furnishing: "مفروشة بالكامل", availableFrom: "١ سبتمبر ٢٠٢٤", currentRoommates: 2, images: ["https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1643383/pexels-photo-1643383.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1457842/pexels-photo-1457842.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: "https://storage.googleapis.com/coverr-main/mp4/Mt_Baker.mp4", verified: true, premium: true, livabilityScore: 87, status: "متاح" },
-  { id: 2, title: "شقة هادئة للطالبات", address: "شارع النباوي المهندس، كفر الشيخ", city: "كفر الشيخ", university: "جامعة كفر الشيخ", pricePerMonth: 750, roomType: "غرفة في شقة", areaSqm: 120, bedrooms: 4, bathrooms: 2, floor: "الرابع", furnishing: "مفروشة بالكامل", availableFrom: "١٥ أغسطس ٢٠٢٤", currentRoommates: 3, images: ["https://images.pexels.com/photos/157811/pexels-photo-157811.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1454806/pexels-photo-1454806.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1743229/pexels-photo-1743229.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: null, verified: true, premium: false, livabilityScore: 92, status: "متاح" },
-  { id: 3, title: "استوديو جيهان العصري", address: "شارع جيهان، المنصورة", city: "المنصورة", university: "جامعة المنصورة", pricePerMonth: 1200, roomType: "استوديو", areaSqm: 55, bedrooms: 1, bathrooms: 1, floor: "الثاني", furnishing: "مفروشة بالكامل", availableFrom: "١ أكتوبر ٢٠٢٤", currentRoommates: 0, images: ["https://images.pexels.com/photos/1571453/pexels-photo-1571453.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/276724/pexels-photo-276724.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/271816/pexels-photo-271816.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: null, verified: true, premium: true, livabilityScore: 95, status: "متاح" },
-  { id: 4, title: "بيت الطلبة على شارع الجامعة", address: "شارع الجامعة، طنطا", city: "طنطا", university: "جامعة طنطا", pricePerMonth: 850, roomType: "غرفة مزدوجة", areaSqm: 98, bedrooms: 3, bathrooms: 2, floor: "الخامس", furnishing: "مفروشة جزئياً", availableFrom: "١ سبتمبر ٢٠٢٤", currentRoommates: 2, images: ["https://images.pexels.com/photos/1669799/pexels-photo-1669799.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1648776/pexels-photo-1648776.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/1579253/pexels-photo-1579253.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: null, verified: true, premium: false, livabilityScore: 84, status: "متاح" },
-  { id: 5, title: "شقة كاملة في ميت خميس", address: "ميت خميس، المنصورة", city: "المنصورة", university: "جامعة المنصورة", pricePerMonth: 1800, roomType: "شقة كاملة", areaSqm: 145, bedrooms: 3, bathrooms: 2, floor: "الأول", furnishing: "مفروشة بالكامل", availableFrom: "١ أغسطس ٢٠٢٤", currentRoommates: 0, images: ["https://images.pexels.com/photos/1571468/pexels-photo-1571468.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/2029698/pexels-photo-2029698.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/2062431/pexels-photo-2062431.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: null, verified: true, premium: true, livabilityScore: 89, status: "مشغول" },
-  { id: 6, title: "سرير اقتصادي قريب من المواصلات", address: "شارع بورسعيد، كفر الشيخ", city: "كفر الشيخ", university: "جامعة كفر الشيخ", pricePerMonth: 650, roomType: "سرير في غرفة مشتركة", areaSqm: 88, bedrooms: 4, bathrooms: 2, floor: "الثاني", furnishing: "مفروشة بالكامل", availableFrom: "١ أغسطس ٢٠٢٤", currentRoommates: 3, images: ["https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/276583/pexels-photo-276583.jpeg?auto=compress&cs=tinysrgb&w=1200", "https://images.pexels.com/photos/262048/pexels-photo-262048.jpeg?auto=compress&cs=tinysrgb&w=1200"], video360Url: null, verified: true, premium: false, livabilityScore: 81, status: "متاح" },
-];
-
-const services = [
-  ["أقرب مستشفى", "٥٠٠م", "٨ دقائق مشياً", "4.5"], ["صيدلية", "١٥٠م", "دقيقتان", "5.0"], ["سوبرماركت", "٣٠٠م", "٥ دقائق", "4.2"],
-  ["محطة مواصلات", "٢٠٠م", "٣ دقائق", "4.0"], ["بوابة الجامعة", "١٫٢كم", "١٥ دقيقة", "4.8"], ["كافيه / مطعم", "١٠٠م", "دقيقة واحدة", "4.6"],
-];
 const reviews = [
   { name: "سارة محمود", university: "جامعة كفر الشيخ", initials: "سم", color: "bg-teal-700", quote: "المكان مطابق للصور جداً، والأهم إن كل تفاصيل العقد كانت واضحة من البداية." },
   { name: "يوسف خالد", university: "جامعة المنصورة", initials: "يك", color: "bg-amber-700", quote: "قرب السكن من البوابة وفر عليّ وقت ومواصلات كل يوم. تجربة مريحة فعلاً." },
@@ -324,15 +311,29 @@ function PropertyCard({ property, saved, onSave, onOpen }: { property: Property;
       <p className="mb-2 text-xs text-muted-foreground">{property.roomType} · {property.university}</p>
 
       {/* شريط الخدمات والمسافات الحية للمنطقة المحيطة */}
-      <div className="mb-3 flex items-center justify-between rounded-xl border border-border/80 bg-muted/40 px-2.5 py-1.5 text-[11px]" data-testid={`card-amenities-${property.id}`}>
-        <span className="flex items-center gap-1 font-semibold text-foreground">
-          <GraduationCap size={13} className="text-primary" />
-          بوابة الجامعة: {cardAmenities.universityGate.distance} ({cardAmenities.universityGate.time})
-        </span>
-        <span className="text-[10px] font-bold text-primary">
-          مواصلات: {cardAmenities.transportation.distance}
-        </span>
-      </div>
+      {cardAmenities.universityGate?.distance && cardAmenities.universityGate.distance !== "لا توجد بيانات متاحة" ? (
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-border/80 bg-muted/40 px-2.5 py-1.5 text-[11px]" data-testid={`card-amenities-${property.id}`}>
+          <span className="flex items-center gap-1 font-semibold text-foreground truncate">
+            <GraduationCap size={13} className="text-primary shrink-0" />
+            بوابة الجامعة: {cardAmenities.universityGate.distance} {cardAmenities.universityGate.time && cardAmenities.universityGate.time !== "لا توجد بيانات متاحة" ? `(${cardAmenities.universityGate.time})` : ""}
+          </span>
+          {cardAmenities.transportation?.distance && cardAmenities.transportation.distance !== "لا توجد بيانات متاحة" && (
+            <span className="text-[10px] font-bold text-primary shrink-0">
+              مواصلات: {cardAmenities.transportation.distance}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-border/80 bg-muted/40 px-2.5 py-1.5 text-[11px]" data-testid={`card-amenities-${property.id}`}>
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <GraduationCap size={13} className="text-primary shrink-0" />
+            خدمات المنطقة المحيطة
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            OpenStreetMap
+          </span>
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="flex items-center gap-1"><Ruler size={13} />{property.areaSqm}م²</span><span className="flex items-center gap-1"><BedDouble size={13} />{property.bedrooms} غرف</span><span className="flex items-center gap-1"><Bath size={13} />{property.bathrooms} حمامات</span><span className="flex items-center gap-1"><Users size={13} />{property.currentRoommates} شركاء</span></div>
       <div className="mb-3"><div className="mb-1 flex justify-between text-[11px]"><span className="text-muted-foreground">مؤشر جودة الحياة</span><span className="font-bold text-primary">{property.livabilityScore}/100</span></div><div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${property.livabilityScore}%` }} /></div></div>
@@ -378,11 +379,12 @@ function PropertyDetail({
 
     async function fetchFreshAmenities() {
       try {
-        const res = await fetch(`/api/geo/amenities?lat=${lat}&lng=${lng}`);
+        const res = await fetch(`/api/geo/amenities?lat=${lat}&lng=${lng}&propertyId=${property.id}`);
         if (res.ok) {
           const data = await res.json();
-          if (active && data.success) {
+          if (active && data.success && data.amenities) {
             setDynamicAmenitiesData(data.amenities);
+            return;
           }
         }
       } catch (err) {
@@ -391,6 +393,11 @@ function PropertyDetail({
         if (active) {
           setIsLoadingAmenities(false);
         }
+      }
+
+      // Fallback only if live fetch fails and property already had nearbyAmenities
+      if (active && (property as any).nearbyAmenities) {
+        setDynamicAmenitiesData((property as any).nearbyAmenities);
       }
     }
 
@@ -512,12 +519,6 @@ function PropertyDetail({
     return getEffectiveAmenities(property as any);
   }, [dynamicAmenitiesData, property]);
 
-  // State for calculated routes to avoid repeated/duplicate API calls
-  const [routesMap, setRoutesMap] = useState<Record<string, {
-    walking?: { distance: string; duration: string; distanceMeters?: number; error?: boolean };
-    driving?: { distance: string; duration: string; distanceMeters?: number; error?: boolean };
-  }>>({});
-
   const baseAmenitiesList = useMemo(() => {
     return getAmenitiesDisplayList(effectiveAmenities, (property as any).lat, (property as any).lng);
   }, [effectiveAmenities, property]);
@@ -536,77 +537,7 @@ function PropertyDetail({
     }
   }, [baseAmenitiesList]);
 
-  // Effect to fetch walking and driving routes lazily for the active property
-  useEffect(() => {
-    const propLat = (property as any).lat;
-    const propLng = (property as any).lng;
-    if (!propLat || !propLng) return;
-
-    let active = true;
-
-    async function fetchAllRoutes() {
-      baseAmenitiesList.forEach(async (amenity) => {
-        const cacheKey = `${propLat},${propLng}-${amenity.lat},${amenity.lng}`;
-        if (routesMap[cacheKey]) {
-          return; // Already fetched
-        }
-
-        // Fetch walking route
-        let walkingResult: any = null;
-        try {
-          const res = await fetch(`/api/geo/route?originLat=${propLat}&originLng=${propLng}&destinationLat=${amenity.lat}&destinationLng=${amenity.lng}&mode=walking`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
-              walkingResult = { distance: data.distanceFormatted, duration: data.durationFormatted, distanceMeters: data.distanceMeters };
-            } else {
-              walkingResult = { error: true };
-            }
-          } else {
-            walkingResult = { error: true };
-          }
-        } catch {
-          walkingResult = { error: true };
-        }
-
-        // Fetch driving route
-        let drivingResult: any = null;
-        try {
-          const res = await fetch(`/api/geo/route?originLat=${propLat}&originLng=${propLng}&destinationLat=${amenity.lat}&destinationLng=${amenity.lng}&mode=driving`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
-              drivingResult = { distance: data.distanceFormatted, duration: data.durationFormatted, distanceMeters: data.distanceMeters };
-            } else {
-              drivingResult = { error: true };
-            }
-          } else {
-            drivingResult = { error: true };
-          }
-        } catch {
-          drivingResult = { error: true };
-        }
-
-        if (active) {
-          setRoutesMap((prev) => ({
-            ...prev,
-            [cacheKey]: {
-              walking: walkingResult,
-              driving: drivingResult,
-            }
-          }));
-        }
-      });
-    }
-
-    fetchAllRoutes();
-
-    return () => {
-      active = false;
-    };
-  }, [property.id, baseAmenitiesList]);
-
-  // Sort amenities by actual walking route distance where possible, fallback to verified geographic distance
+  // Sort amenities: prioritize university, then sort by real geographic distance
   const dynamicAmenities = useMemo(() => {
     const propLat = (property as any).lat;
     const propLng = (property as any).lng;
@@ -616,23 +547,17 @@ function PropertyDetail({
     }
 
     return [...baseAmenitiesList].sort((a, b) => {
-      const cacheKeyA = `${propLat},${propLng}-${a.lat},${a.lng}`;
-      const cacheKeyB = `${propLat},${propLng}-${b.lat},${b.lng}`;
+      const aIsUniv = a.iconType === "universityGate" ? 1 : 0;
+      const bIsUniv = b.iconType === "universityGate" ? 1 : 0;
+      if (aIsUniv !== bIsUniv) {
+        return bIsUniv - aIsUniv;
+      }
 
-      const routeA = routesMap[cacheKeyA];
-      const routeB = routesMap[cacheKeyB];
-
-      const distA = routeA?.walking && !routeA.walking.error && routeA.walking.distanceMeters !== undefined
-        ? routeA.walking.distanceMeters 
-        : calcHaversineDistanceMeters(propLat, propLng, a.lat || 0, a.lng || 0);
-
-      const distB = routeB?.walking && !routeB.walking.error && routeB.walking.distanceMeters !== undefined
-        ? routeB.walking.distanceMeters 
-        : calcHaversineDistanceMeters(propLat, propLng, b.lat || 0, b.lng || 0);
-
+      const distA = calcHaversineDistanceMeters(propLat, propLng, a.lat || 0, a.lng || 0);
+      const distB = calcHaversineDistanceMeters(propLat, propLng, b.lat || 0, b.lng || 0);
       return distA - distB;
     });
-  }, [baseAmenitiesList, property, routesMap]);
+  }, [baseAmenitiesList, property]);
 
   // سياسات وقوانين العقار
   const rules = property.rules || "";
@@ -841,103 +766,164 @@ function PropertyDetail({
         className="mb-4"
       />
 
-      {/* بطاقات الخدمات التفاعلية */}
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-        {dynamicAmenities.map((item) => {
-          const isSelected = selectedAmenityKey === item.key;
-          const propLat = (property as any).lat;
-          const propLng = (property as any).lng;
-          const cacheKey = propLat && propLng ? `${propLat},${propLng}-${item.lat},${item.lng}` : "";
-          const route = routesMap[cacheKey];
-          
-          const geoMeters = propLat && propLng && item.lat && item.lng
-            ? calcHaversineDistanceMeters(propLat, propLng, item.lat, item.lng)
-            : null;
-            
-          const geoDistanceFormatted = geoMeters !== null
-            ? (geoMeters < 1000 ? `${Math.round(geoMeters)} م` : `${(geoMeters / 1000).toFixed(1).replace(".", "٫")} كم`)
-            : "لا توجد بيانات متاحة";
-
-          return (
-            <div 
-              className={`flex flex-col gap-2 rounded-xl border p-3.5 shadow-xs cursor-pointer transition-all ${
-                isSelected 
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/40" 
-                  : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
-              }`} 
-              key={item.key} 
-              onClick={() => setSelectedAmenityKey(item.key)}
-              data-testid={`amenity-item-${item.key}`}
-            >
-              <div className="flex items-start gap-3">
-                <div className={`rounded-lg p-2.5 shrink-0 ${isSelected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
-                  {item.categoryName.includes("جامعة") ? <GraduationCap size={18} /> : item.categoryName.includes("مطعم") || item.categoryName.includes("كافيه") ? <CoffeeIcon /> : <MapPin size={18} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <strong className="block text-sm text-foreground">{item.categoryName}</strong>
-                    {isSelected && <span className="text-[10px] font-bold text-primary shrink-0">المسار نشط 📍</span>}
+      {/* بطاقات الخدمات التفاعلية مقسمة حسب الفئات */}
+      {isLoadingAmenities && dynamicAmenities.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
+          <span className="inline-block animate-pulse ml-2">📍</span>
+          جاري استرداد الخدمات المحيطة المعتمدة من OpenStreetMap...
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {[
+            {
+              key: "universityGate",
+              title: "الجامعة / أقرب جامعة",
+              icon: "🎓",
+              emptyText: "لا توجد بيانات جامعة متاحة",
+            },
+            {
+              key: "supermarket",
+              title: "السوبرماركت والأسواق",
+              icon: "🛒",
+              emptyText: "لا توجد بيانات متاحة",
+            },
+            {
+              key: "cafeRestaurant",
+              title: "المطاعم والكافيهات",
+              icon: "🍴",
+              emptyText: "لا توجد بيانات متاحة",
+            },
+            {
+              key: "pharmacy",
+              title: "الصيدليات",
+              icon: "💊",
+              emptyText: "لا توجد بيانات متاحة",
+            },
+            {
+              key: "hospital",
+              title: "المستشفيات والعيادات",
+              icon: "🏥",
+              emptyText: "لا توجد بيانات متاحة",
+            },
+            {
+              key: "transportation",
+              title: "المواصلات والنقل",
+              icon: "🚌",
+              emptyText: "لا توجد بيانات متاحة",
+            },
+          ].map((cat) => {
+            const items = dynamicAmenities.filter((item) => item.iconType === cat.key);
+            return (
+              <div key={cat.key} className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
+                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border/50">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{cat.icon}</span>
+                    <h4 className="text-xs font-bold text-foreground">{cat.title}</h4>
                   </div>
-                  {item.name && <span className="block text-[11px] text-primary font-medium truncate mt-0.5">{item.name}</span>}
+                  {items.length > 0 ? (
+                    <span className="text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                      {items.length} {items.length === 1 ? "مكان موثق" : "أماكن موثقة"}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
+                      غير متوفر
+                    </span>
+                  )}
                 </div>
-                {item.rating && item.rating !== "0" && item.rating !== "0.0" ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 shrink-0"
-                    title="تقييم مكاني المعتمد"
-                  >
-                    <span>★</span>
-                    <span>تقييم مكاني: {item.rating} / 5</span>
-                  </span>
+
+                {items.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 py-3 px-4 text-center text-xs text-muted-foreground">
+                    {cat.emptyText}
+                  </div>
                 ) : (
-                  <span
-                    className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shrink-0"
-                    title="لم يتم تقييمه بعد من قِبل إدارة مكاني"
-                  >
-                    لم يتم تقييمه بعد
-                  </span>
+                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {items.map((item) => {
+                      const isSelected = selectedAmenityKey === item.key;
+                      const propLat = (property as any).lat;
+                      const propLng = (property as any).lng;
+
+                      const geoMeters = propLat && propLng && item.lat && item.lng
+                        ? calcHaversineDistanceMeters(propLat, propLng, item.lat, item.lng)
+                        : null;
+
+                      const geoDistanceFormatted = geoMeters !== null
+                        ? (geoMeters < 1000 ? `${Math.round(geoMeters)} م` : `${(geoMeters / 1000).toFixed(1).replace(".", "٫")} كم`)
+                        : item.distance && item.distance !== "لا توجد بيانات متاحة"
+                          ? item.distance
+                          : "لا توجد بيانات متاحة";
+
+                      const displayDistance = geoDistanceFormatted.startsWith("المسافة الجغرافية:")
+                        ? geoDistanceFormatted
+                        : geoDistanceFormatted !== "لا توجد بيانات متاحة"
+                          ? `المسافة الجغرافية: ${geoDistanceFormatted}`
+                          : geoDistanceFormatted;
+
+                      return (
+                        <div
+                          className={`flex flex-col justify-between gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${
+                            isSelected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/40 shadow-xs"
+                              : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"
+                          }`}
+                          key={item.key}
+                          onClick={() => setSelectedAmenityKey(item.key)}
+                          data-testid={`amenity-item-${item.key}`}
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-1.5 mb-1.5">
+                              <strong className="block text-xs font-bold text-foreground line-clamp-1" title={item.name}>
+                                {item.name}
+                              </strong>
+                              {isSelected && (
+                                <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded shrink-0">
+                                  نشط 📍
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {item.rating && item.rating !== "0" && item.rating !== "0.0" ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400"
+                                  title="تقييم مكاني المعتمد"
+                                >
+                                  <span>★</span>
+                                  <span>تقييم مكاني: {item.rating} / 5</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
+                                  title="لم يتم تقييمه بعد من قِبل إدارة مكاني"
+                                >
+                                  لم يتم تقييمه بعد
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="border-t border-dashed border-border/80 pt-2 space-y-1 text-[11px]">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                              <span>المسافة الجغرافية:</span>
+                              <span className="font-semibold text-foreground">{displayDistance}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between border-t border-dashed border-border/40 pt-1 text-[10px]">
+                              <span className="text-muted-foreground flex items-center gap-1">
+                                <span>🚶</span> مسار المشي:
+                              </span>
+                              <span className="font-medium text-muted-foreground">بيانات مسار المشي غير متاحة</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-
-              <div className="border-t border-dashed border-border/80 pt-2 mt-1 space-y-1.5 text-[11px]">
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>المسافة الجغرافية:</span>
-                  <span className="font-semibold text-foreground">{geoDistanceFormatted}</span>
-                </div>
-
-                <div className="flex items-center justify-between border-t border-dashed border-border/40 pt-1.5">
-                  <span className="flex items-center gap-1 font-bold text-emerald-600">
-                    <span>🚶</span> مشي:
-                  </span>
-                  {route ? (
-                    route.walking?.error ? (
-                      <span className="text-[10px] text-red-500 font-medium">تعذر حساب مسار المشي</span>
-                    ) : (
-                      <span className="font-semibold text-foreground">{route.walking?.distance} ({route.walking?.duration})</span>
-                    )
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground/50 animate-pulse">جاري الحساب...</span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1 font-bold text-blue-600">
-                    <span>🚗</span> سيارة:
-                  </span>
-                  {route ? (
-                    route.driving?.error ? (
-                      <span className="text-[10px] text-red-500 font-medium">تعذر حساب مسار السيارة</span>
-                    ) : (
-                      <span className="font-semibold text-foreground">{route.driving?.distance} ({route.driving?.duration})</span>
-                    )
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground/50 animate-pulse">جاري الحساب...</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </section>
 
     {/* سياسات وقوانين الإقامة بالتفصيل */}

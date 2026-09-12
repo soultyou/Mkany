@@ -52,20 +52,31 @@ export function getHaversineDistance(lat1: number, lon1: number, lat2: number, l
 /**
  * Format distance in Arabic with label indicating whether it's geographic or road
  */
-export function formatDistanceWithLabel(meters: number, isGeographicOnly: boolean): string {
+export function formatDistanceWithLabel(meters: number, isGeographicOnly: boolean = true): string {
   const formatted = meters < 1000 ? `${Math.round(meters)} م` : `${(meters / 1000).toFixed(1).replace(".", "٫")} كم`;
-  return isGeographicOnly ? `المسافة الجغرافية: ${formatted}` : `مسافة الطريق: ${formatted}`;
+  return `المسافة الجغرافية: ${formatted}`;
 }
+
+const overpassCache = new Map<string, { timestamp: number; data: NearbyAmenities }>();
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes in-memory cache
 
 /**
  * Fetch real amenities from OpenStreetMap Overpass API
  */
 export async function fetchNearbyAmenitiesFromOverpass(lat: number, lng: number): Promise<NearbyAmenities> {
+  const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = overpassCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return JSON.parse(JSON.stringify(cached.data));
+  }
+
   const defaultEmptyDetail = (categoryAr: string): AmenityDetail => ({
-    name: `لا توجد بيانات ${categoryAr} متاحة في النطاق الحالي`,
+    name: categoryAr === "جامعة" ? "لا توجد بيانات جامعة متاحة" : `لا توجد بيانات ${categoryAr} متاحة`,
     distance: "لا توجد بيانات متاحة",
-    time: "لا توجد بيانات متاحة",
+    time: "بيانات مسار المشي غير متاحة",
     isGeographicOnly: true,
+    walkTimeFormatted: "بيانات مسار المشي غير متاحة",
+    driveTimeFormatted: "بيانات مسار السيارة غير متاحة",
   });
 
   const amenitiesResult: NearbyAmenities = {
@@ -74,7 +85,7 @@ export async function fetchNearbyAmenitiesFromOverpass(lat: number, lng: number)
     transportation: defaultEmptyDetail("مواصلات"),
     supermarket: defaultEmptyDetail("سوبرماركت"),
     cafeRestaurant: defaultEmptyDetail("مطاعم وكافيهات"),
-    universityGate: defaultEmptyDetail("بوابات الجامعة والتعليم"),
+    universityGate: defaultEmptyDetail("جامعة"),
     hospitalList: [],
     pharmacyList: [],
     transportationList: [],
@@ -88,39 +99,63 @@ export async function fetchNearbyAmenitiesFromOverpass(lat: number, lng: number)
     return amenitiesResult;
   }
 
-  // Overpass API Query
-  const overpassUrl = "https://overpass-api.de/api/interpreter";
-  const query = `[out:json][timeout:15];
+  // Overpass API Query endpoints with fallback
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+  ];
+  // Strictly query university and college for educational institutions — schools are NOT universities and must NOT be substituted.
+  const query = `[out:json][timeout:25];
 (
-  node(around:1000, ${lat}, ${lng})["amenity"~"hospital|clinic|pharmacy|bus_station|bus_stop|taxi|cafe|restaurant|fast_food|supermarket|convenience|marketplace|university|college|school"];
-  way(around:1000, ${lat}, ${lng})["amenity"~"hospital|clinic|pharmacy|bus_station|bus_stop|taxi|cafe|restaurant|fast_food|supermarket|convenience|marketplace|university|college|school"];
+  nwr(around:2500,${lat},${lng})["amenity"~"hospital|clinic|pharmacy|cafe|restaurant|fast_food|university|college|bus_station|taxi|marketplace"];
+  nwr(around:2500,${lat},${lng})["shop"~"supermarket|convenience|grocery|bakery|mall|department_store"];
+  nwr(around:2500,${lat},${lng})["highway"="bus_stop"];
+  nwr(around:2500,${lat},${lng})["public_transport"~"platform|stop_position|station"];
 );
 out center;`;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds timeout
+    let elements: any[] = [];
+    let fetchError: any = null;
 
-    const response = await fetch(overpassUrl, {
-      method: "POST",
-      body: "data=" + encodeURIComponent(query),
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    for (const overpassUrl of endpoints) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 16000); // 16 seconds timeout per endpoint
 
-    if (!response.ok) {
-      throw new Error(`Overpass API responded with status ${response.status}`);
+        const response = await fetch(overpassUrl, {
+          method: "POST",
+          body: "data=" + encodeURIComponent(query),
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "MkanyStudentHousing/1.0 (https://mkany.app; platform@mkany.app)",
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data && Array.isArray(data.elements)) {
+            elements = data.elements;
+            break;
+          }
+        } else {
+          console.warn(`Overpass API endpoint ${overpassUrl} returned status ${response.status}`);
+        }
+      } catch (err: any) {
+        fetchError = err;
+        console.warn(`Overpass API endpoint ${overpassUrl} failed: ${err?.message}`);
+      }
     }
 
-    const data = await response.json();
-    if (!data || !Array.isArray(data.elements)) {
+    if (!elements || elements.length === 0) {
+      if (fetchError) {
+        console.error("All Overpass endpoints failed or returned empty elements:", fetchError);
+      }
       return amenitiesResult;
     }
-
-    const elements = data.elements;
 
     const parsedPlaces: Array<{
       name: string;
@@ -130,6 +165,7 @@ out center;`;
       distanceMeters: number;
       osmType: string;
       osmId: string;
+      isUniversity?: boolean;
     }> = [];
 
     for (const el of elements) {
@@ -143,28 +179,34 @@ out center;`;
       if (placeLat === null || placeLng === null) continue;
 
       const distanceMeters = getHaversineDistance(lat, lng, placeLat, placeLng);
-      if (distanceMeters > 1100) continue; // filter slightly strictly
+      if (distanceMeters > 3000) continue;
 
       // Classify type
       let categoryType = "";
       const amenity = tags["amenity"] || "";
       const shop = tags["shop"] || "";
+      const building = tags["building"] || "";
+
+      // Explicitly reject schools and kindergartens from ever being treated as universities
+      const isSchool = amenity === "school" || building === "school" || amenity === "kindergarten" || name.includes("مدرسة") || name.includes("مدرسه");
 
       if (["hospital", "clinic", "doctors", "dentist"].includes(amenity)) {
         categoryType = "hospital";
       } else if (amenity === "pharmacy") {
         categoryType = "pharmacy";
-      } else if (["bus_station", "bus_stop", "taxi", "railway_station", "station"].includes(amenity)) {
+      } else if (["bus_station", "bus_stop", "taxi", "railway_station", "station"].includes(amenity) || tags["highway"] === "bus_stop" || tags["public_transport"]) {
         categoryType = "transportation";
-      } else if (["supermarket", "convenience", "marketplace", "mall", "department_store"].includes(shop) || amenity === "marketplace") {
+      } else if (["supermarket", "convenience", "marketplace", "mall", "department_store", "grocery", "bakery"].includes(shop) || amenity === "marketplace") {
         categoryType = "supermarket";
       } else if (["cafe", "restaurant", "fast_food", "food_court"].includes(amenity)) {
         categoryType = "cafeRestaurant";
-      } else if (["university", "college", "school", "kindergarten"].includes(amenity)) {
+      } else if (!isSchool && (["university", "college"].includes(amenity) || building === "university" || building === "college" || name.includes("جامعة") || name.includes("جامعه") || name.includes("كلية") || name.includes("كليه"))) {
         categoryType = "universityGate";
       }
 
       if (!categoryType) continue;
+
+      const isUniversity = categoryType === "universityGate" && (amenity === "university" || building === "university" || name.includes("جامعة") || name.includes("جامعه"));
 
       parsedPlaces.push({
         name,
@@ -174,6 +216,7 @@ out center;`;
         distanceMeters,
         osmType: String(el.type || "node"),
         osmId: String(el.id || ""),
+        isUniversity,
       });
     }
 
@@ -190,8 +233,17 @@ out center;`;
       }
     }
 
-    // Sort by proximity
-    uniquePlaces.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    // Sort by proximity, prioritizing true university entities for universityGate
+    uniquePlaces.sort((a, b) => {
+      if (a.type === "universityGate" && b.type === "universityGate") {
+        const aIsUniv = a.isUniversity ? 1 : 0;
+        const bIsUniv = b.isUniversity ? 1 : 0;
+        if (aIsUniv !== bIsUniv) {
+          return bIsUniv - aIsUniv; // Real university prioritized over colleges
+        }
+      }
+      return a.distanceMeters - b.distanceMeters;
+    });
 
     // Group into lists
     const lists: Record<string, AmenityDetail[]> = {
@@ -204,13 +256,14 @@ out center;`;
     };
 
     for (const p of uniquePlaces) {
-      const minutesWalk = Math.max(1, Math.round(p.distanceMeters / 80));
-      const formattedWalk = minutesWalk === 1 ? "دقيقة واحدة مشياً" : minutesWalk === 2 ? "دقيقتان مشياً" : `${minutesWalk} دقائق مشياً`;
+      if (lists[p.type].length >= 3) continue;
 
       lists[p.type].push({
         name: p.name,
         distance: formatDistanceWithLabel(p.distanceMeters, true),
-        time: formattedWalk,
+        // Real walking routing engine is NOT implemented in this task.
+        // No fabricated walking times or speed approximations (distanceMeters / 80) allowed.
+        time: "بيانات مسار المشي غير متاحة",
         // Mkany Admin is the sole source of truth for service rating.
         // Unrated places display "لم يتم تقييمه بعد" or omit rating.
         rating: undefined,
@@ -265,6 +318,8 @@ out center;`;
     amenitiesResult.supermarketList = lists.supermarket;
     amenitiesResult.cafeRestaurantList = lists.cafeRestaurant;
     amenitiesResult.universityGateList = lists.universityGate;
+    (amenitiesResult as any).universityList = lists.universityGate;
+    (amenitiesResult as any).restaurantCafeList = lists.cafeRestaurant;
 
     // Set closest as the primary object
     const categoriesKeys = ["hospital", "pharmacy", "transportation", "supermarket", "cafeRestaurant", "universityGate"];
@@ -274,24 +329,35 @@ out center;`;
         (amenitiesResult as any)[cat] = { ...catList[0] };
       } else {
         const labels: Record<string, string> = {
-          hospital: "سوبرماركت أو صيدلية أو مستشفى",
-          pharmacy: "صيدلية",
-          transportation: "محطة مواصلات",
+          hospital: "مستشفيات",
+          pharmacy: "صيدليات",
+          transportation: "مواصلات",
           supermarket: "سوبرماركت",
-          cafeRestaurant: "مطعم أو كافيه",
-          universityGate: "بوابة جامعة أو تعليم",
+          cafeRestaurant: "مطاعم وكافيهات",
+          universityGate: "جامعة",
         };
         (amenitiesResult as any)[cat] = {
-          name: `لا توجد بيانات ${labels[cat] || cat} متاحة في النطاق الحالي`,
+          name: cat === "universityGate" ? "لا توجد بيانات جامعة متاحة" : `لا توجد بيانات ${labels[cat] || cat} متاحة`,
           distance: "لا توجد بيانات متاحة",
-          time: "لا توجد بيانات متاحة",
+          time: "بيانات مسار المشي غير متاحة",
           isGeographicOnly: true,
+          walkTimeFormatted: "بيانات مسار المشي غير متاحة",
+          driveTimeFormatted: "بيانات مسار السيارة غير متاحة",
         };
       }
     }
 
   } catch (error) {
     console.error("Failed to query Overpass API or parse data:", error);
+  }
+
+  if (
+    amenitiesResult.universityGateList.length > 0 ||
+    amenitiesResult.supermarketList.length > 0 ||
+    amenitiesResult.hospitalList.length > 0 ||
+    amenitiesResult.pharmacyList.length > 0
+  ) {
+    overpassCache.set(cacheKey, { timestamp: Date.now(), data: JSON.parse(JSON.stringify(amenitiesResult)) });
   }
 
   return amenitiesResult;

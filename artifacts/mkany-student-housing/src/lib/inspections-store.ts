@@ -1,4 +1,4 @@
-import { getDerivedAmenityCoords, getCityDefaultCoordinates } from "./geo-utils";
+import { getDerivedAmenityCoords, getCityDefaultCoordinates, calcHaversineDistanceMeters } from "./geo-utils";
 import {
   uploadSingleImageApi,
   uploadMultipleImagesApi,
@@ -86,6 +86,8 @@ export interface NearbyAmenities {
   supermarketList?: AmenityDetail[];
   cafeRestaurantList?: AmenityDetail[];
   universityGateList?: AmenityDetail[];
+  universityList?: AmenityDetail[];
+  restaurantCafeList?: AmenityDetail[];
 }
 
 export interface PlatformProperty {
@@ -182,13 +184,21 @@ const INITIAL_INSPECTIONS: PropertyInspection[] = [
 export function getDefaultAmenities(city: string = "كفر الشيخ", university: string = "جامعة كفر الشيخ"): NearbyAmenities {
   // Return clean 'no data available' labels as fallbacks to strictly satisfy the 'no fake/invented/hardcoded GIS data' product rule.
   const emptyLabel = "لا توجد بيانات متاحة";
+  const noWalkLabel = "بيانات مسار المشي غير متاحة";
   return {
-    hospital: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
-    pharmacy: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
-    transportation: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
-    supermarket: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
-    cafeRestaurant: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
-    universityGate: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    hospital: { distance: emptyLabel, time: noWalkLabel, name: emptyLabel, rating: undefined },
+    pharmacy: { distance: emptyLabel, time: noWalkLabel, name: emptyLabel, rating: undefined },
+    transportation: { distance: emptyLabel, time: noWalkLabel, name: emptyLabel, rating: undefined },
+    supermarket: { distance: emptyLabel, time: noWalkLabel, name: emptyLabel, rating: undefined },
+    cafeRestaurant: { distance: emptyLabel, time: noWalkLabel, name: emptyLabel, rating: undefined },
+    universityGate: { distance: emptyLabel, time: noWalkLabel, name: "لا توجد بيانات جامعة متاحة", rating: undefined },
+    hospitalList: [],
+    pharmacyList: [],
+    transportationList: [],
+    supermarketList: [],
+    cafeRestaurantList: [],
+    universityGateList: [],
+    universityList: [],
   };
 }
 
@@ -196,13 +206,22 @@ export function getEffectiveAmenities(property: { city?: string; university?: st
   const def = getDefaultAmenities(property?.city, property?.university);
   if (!property?.nearbyAmenities) return def;
 
+  const na = property.nearbyAmenities;
+
   return {
-    hospital: property.nearbyAmenities.hospital || def.hospital,
-    pharmacy: property.nearbyAmenities.pharmacy || def.pharmacy,
-    transportation: property.nearbyAmenities.transportation || def.transportation,
-    supermarket: property.nearbyAmenities.supermarket || def.supermarket,
-    cafeRestaurant: property.nearbyAmenities.cafeRestaurant || def.cafeRestaurant,
-    universityGate: property.nearbyAmenities.universityGate || def.universityGate,
+    hospital: na.hospital || def.hospital,
+    pharmacy: na.pharmacy || def.pharmacy,
+    transportation: na.transportation || def.transportation,
+    supermarket: na.supermarket || def.supermarket,
+    cafeRestaurant: na.cafeRestaurant || def.cafeRestaurant,
+    universityGate: na.universityGate || def.universityGate,
+    hospitalList: Array.isArray(na.hospitalList) ? na.hospitalList : [],
+    pharmacyList: Array.isArray(na.pharmacyList) ? na.pharmacyList : [],
+    transportationList: Array.isArray(na.transportationList) ? na.transportationList : [],
+    supermarketList: Array.isArray(na.supermarketList) ? na.supermarketList : [],
+    cafeRestaurantList: Array.isArray(na.cafeRestaurantList) ? na.cafeRestaurantList : (Array.isArray(na.restaurantCafeList) ? na.restaurantCafeList : []),
+    universityGateList: Array.isArray(na.universityGateList) ? na.universityGateList : (Array.isArray(na.universityList) ? na.universityList : []),
+    universityList: Array.isArray(na.universityList) ? na.universityList : (Array.isArray(na.universityGateList) ? na.universityGateList : []),
   };
 }
 
@@ -227,27 +246,41 @@ export function getAmenitiesDisplayList(amenities: NearbyAmenities, propertyLat?
     categoryName: string;
     iconType: "hospital" | "pharmacy" | "transportation" | "supermarket" | "cafeRestaurant" | "universityGate";
   }> = [
-    { key: "universityGate", listKey: "universityGateList", categoryName: "بوابة الجامعة", iconType: "universityGate" },
-    { key: "transportation", listKey: "transportationList", categoryName: "محطة مواصلات", iconType: "transportation" },
-    { key: "hospital", listKey: "hospitalList", categoryName: "أقرب مستشفى", iconType: "hospital" },
-    { key: "pharmacy", listKey: "pharmacyList", categoryName: "صيدلية", iconType: "pharmacy" },
+    { key: "universityGate", listKey: "universityGateList", categoryName: "الجامعة", iconType: "universityGate" },
     { key: "supermarket", listKey: "supermarketList", categoryName: "سوبرماركت", iconType: "supermarket" },
-    { key: "cafeRestaurant", listKey: "cafeRestaurantList", categoryName: "كافيه / مطعم", iconType: "cafeRestaurant" },
+    { key: "cafeRestaurant", listKey: "cafeRestaurantList", categoryName: "مطاعم وكافيهات", iconType: "cafeRestaurant" },
+    { key: "pharmacy", listKey: "pharmacyList", categoryName: "صيدلية", iconType: "pharmacy" },
+    { key: "hospital", listKey: "hospitalList", categoryName: "مستشفى", iconType: "hospital" },
+    { key: "transportation", listKey: "transportationList", categoryName: "مواصلات", iconType: "transportation" },
   ];
 
   const result: AmenityDisplayItem[] = [];
 
   for (const cat of categories) {
-    const list = (amenities[cat.listKey] as any[]) || [];
+    const rawList = (amenities[cat.listKey] as any[]) || (cat.key === "universityGate" ? (amenities as any).universityList : undefined) || [];
+    // Strictly filter out schools if category is university
+    const list = cat.key === "universityGate"
+      ? rawList.filter((item: any) => !item.name?.includes("مدرسة") && !item.name?.includes("مدرسه"))
+      : rawList;
+
     if (list.length > 0) {
-      list.forEach((item, index) => {
+      list.forEach((item: any, index: number) => {
         // Validate coordinates returned by OSM
         if (item.lat !== undefined && item.lng !== undefined && item.lat >= -90 && item.lat <= 90 && item.lng >= -180 && item.lng <= 180) {
+          let distFormatted = item.distance || emptyLabel;
+          if (propertyLat !== undefined && propertyLng !== undefined && item.lat !== undefined && item.lng !== undefined) {
+            const meters = calcHaversineDistanceMeters(propertyLat, propertyLng, item.lat, item.lng);
+            const formatted = meters < 1000 ? `${Math.round(meters)} م` : `${(meters / 1000).toFixed(1).replace(".", "٫")} كم`;
+            distFormatted = `المسافة الجغرافية: ${formatted}`;
+          } else if (distFormatted && distFormatted !== emptyLabel && !distFormatted.startsWith("المسافة الجغرافية:")) {
+            distFormatted = `المسافة الجغرافية: ${distFormatted}`;
+          }
+
           result.push({
             key: `${cat.key}_${index}` as any,
             categoryName: cat.categoryName,
-            distance: item.distance || emptyLabel,
-            time: item.time || emptyLabel,
+            distance: distFormatted,
+            time: "بيانات مسار المشي غير متاحة",
             name: item.name || emptyLabel,
             rating: item.rating !== undefined && item.rating !== null && item.rating !== "" && item.rating !== "0" && item.rating !== "0.0" ? String(item.rating) : undefined,
             lat: item.lat,
@@ -259,12 +292,22 @@ export function getAmenitiesDisplayList(amenities: NearbyAmenities, propertyLat?
     } else {
       // If no list, check if the single property is valid and has OSM coordinates (no guessing!)
       const primary = amenities[cat.key] as any;
-      if (primary && primary.name && primary.name !== emptyLabel && !primary.name.startsWith("لا توجد") && primary.lat !== undefined && primary.lng !== undefined) {
+      const isInvalidSchool = cat.key === "universityGate" && (primary?.name?.includes("مدرسة") || primary?.name?.includes("مدرسه"));
+      if (primary && primary.name && primary.name !== emptyLabel && !primary.name.startsWith("لا توجد") && !isInvalidSchool && primary.lat !== undefined && primary.lng !== undefined) {
+        let distFormatted = primary.distance || emptyLabel;
+        if (propertyLat !== undefined && propertyLng !== undefined && primary.lat !== undefined && primary.lng !== undefined) {
+          const meters = calcHaversineDistanceMeters(propertyLat, propertyLng, primary.lat, primary.lng);
+          const formatted = meters < 1000 ? `${Math.round(meters)} م` : `${(meters / 1000).toFixed(1).replace(".", "٫")} كم`;
+          distFormatted = `المسافة الجغرافية: ${formatted}`;
+        } else if (distFormatted && distFormatted !== emptyLabel && !distFormatted.startsWith("المسافة الجغرافية:")) {
+          distFormatted = `المسافة الجغرافية: ${distFormatted}`;
+        }
+
         result.push({
           key: cat.key,
           categoryName: cat.categoryName,
-          distance: primary.distance || emptyLabel,
-          time: primary.time || emptyLabel,
+          distance: distFormatted,
+          time: "بيانات مسار المشي غير متاحة",
           name: primary.name || emptyLabel,
           rating: primary.rating !== undefined && primary.rating !== null && primary.rating !== "" && primary.rating !== "0" && primary.rating !== "0.0" ? String(primary.rating) : undefined,
           lat: primary.lat,
@@ -278,7 +321,7 @@ export function getAmenitiesDisplayList(amenities: NearbyAmenities, propertyLat?
   return result;
 }
 
-// الوحدات الست الأساسية للمنصة مع بيانات المنطقة المحيطة الكاملة
+// الوحدات الست الأساسية للمنصة مع الإحداثيات الجغرافية الحقيقية لكل موقع
 const BASE_PROPERTIES: PlatformProperty[] = [
   { 
     id: 1, 
@@ -306,14 +349,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 87, 
     status: "متاح",
     ownerId: "usr_owner_01",
-    nearbyAmenities: {
-      hospital: { distance: "٥٠٠م", time: "٨ دقائق مشياً", name: "مستشفى كفر الشيخ الجامعي", rating: "4.6" },
-      pharmacy: { distance: "١٥٠م", time: "دقيقتان", name: "صيدلية العزبي - شارع الجلاء", rating: "5.0" },
-      transportation: { distance: "٢٠٠م", time: "٣ دقائق", name: "محطة سرفيس الجلاء وموقف الجامعة", rating: "4.4" },
-      supermarket: { distance: "٣٠٠م", time: "٥ دقائق", name: "سوبرماركت كازيون ماركت", rating: "4.3" },
-      cafeRestaurant: { distance: "١٠٠م", time: "دقيقة واحدة", name: "كافيه استراحة المذاكرة ومطعم فول وفلافل", rating: "4.7" },
-      universityGate: { distance: "٨٠٠م", time: "١٠ دقائق مشياً", name: "بوابة كلية الزراعة الرئيسية", rating: "4.8" },
-    }
+    lat: 31.1107,
+    lng: 30.9388,
   },
   { 
     id: 2, 
@@ -341,14 +378,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 92, 
     status: "متاح",
     ownerId: "usr_owner_01",
-    nearbyAmenities: {
-      hospital: { distance: "٦٥٠م", time: "٩ دقائق مشياً", name: "مستشفى العبور التخصصي", rating: "4.5" },
-      pharmacy: { distance: "١٠٠م", time: "دقيقة ونصف", name: "صيدلية النبوي - خدمة طالبات", rating: "5.0" },
-      transportation: { distance: "١٥٠م", time: "دقيقتان", name: "موقف ميكروباصات النبوي ومحطة السرفيس", rating: "4.6" },
-      supermarket: { distance: "٢٥٠م", time: "٤ دقائق", name: "سوبرماركت الأهرام ماركت", rating: "4.4" },
-      cafeRestaurant: { distance: "٨٠م", time: "دقيقة واحدة", name: "كافيه هادئ مخصص للدراسة", rating: "4.9" },
-      universityGate: { distance: "٦٠٠م", time: "٧ دقائق مشياً", name: "بوابة مجمع الكليات الشرقي", rating: "4.9" },
-    }
+    lat: 31.1152,
+    lng: 30.9422,
   },
   { 
     id: 3, 
@@ -376,14 +407,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 95, 
     status: "متاح",
     ownerId: "usr_owner_02",
-    nearbyAmenities: {
-      hospital: { distance: "٤٠٠م", time: "٥ دقائق مشياً", name: "مستشفى الطوارئ الجامعي بالمنصورة", rating: "4.7" },
-      pharmacy: { distance: "٥٠م", time: "دقيقة واحدة", name: "صيدلية رشدي - شارع جيهان", rating: "5.0" },
-      transportation: { distance: "١٠٠م", time: "دقيقة ونصف", name: "محطة سرفيس جيهان للجامعة", rating: "4.7" },
-      supermarket: { distance: "٢٠٠م", time: "٣ دقائق", name: "هايبر ماركت سعودي بالمنصورة", rating: "4.6" },
-      cafeRestaurant: { distance: "٥٠م", time: "دقيقة واحدة", name: "كافيه بوسطة ومساحات عمل للطلبة", rating: "4.8" },
-      universityGate: { distance: "٣٠٠م", time: "٤ دقائق مشياً", name: "بوابة الجلاء - جامعة المنصورة", rating: "5.0" },
-    }
+    lat: 31.0425,
+    lng: 31.3571,
   },
   { 
     id: 4, 
@@ -411,14 +436,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 84, 
     status: "متاح",
     ownerId: "usr_owner_02",
-    nearbyAmenities: {
-      hospital: { distance: "٦٠٠م", time: "٨ دقائق مشياً", name: "المستشفى التعليمي العالمي بطنطا", rating: "4.6" },
-      pharmacy: { distance: "١٢٠م", time: "دقيقتان", name: "صيدلية د. محمد عادل", rating: "4.8" },
-      transportation: { distance: "١٨٠م", time: "٣ دقائق", name: "محطة ميكروباص شارع البحر", rating: "4.3" },
-      supermarket: { distance: "٣٥٠م", time: "٥ دقائق", name: "فتح الله ماركت جملة", rating: "4.5" },
-      cafeRestaurant: { distance: "٩٠م", time: "دقيقة واحدة", name: "كافيه الطلاب ومطعم الشام", rating: "4.6" },
-      universityGate: { distance: "٤٥٠م", time: "٦ دقائق مشياً", name: "بوابة المجمع الطبي - جامعة طنطا", rating: "4.8" },
-    }
+    lat: 30.8001,
+    lng: 30.9995,
   },
   { 
     id: 5, 
@@ -446,14 +465,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 89, 
     status: "مشغول",
     ownerId: "usr_owner_02",
-    nearbyAmenities: {
-      hospital: { distance: "١٫٢كم", time: "١٥ دقيقة مشياً", name: "مستشفى جامعة المنصورة الرئيسي", rating: "4.4" },
-      pharmacy: { distance: "٢٠٠م", time: "٣ دقائق", name: "صيدلية الإيمان", rating: "4.7" },
-      transportation: { distance: "٥٠م", time: "دقيقة واحدة", name: "موقف ميكروباصات ميت خميس للجامعة", rating: "4.5" },
-      supermarket: { distance: "١٥٠م", time: "دقيقتان", name: "سوبرماركت البركة للمواد الغذائية", rating: "4.2" },
-      cafeRestaurant: { distance: "١٢٠م", time: "دقيقتان", name: "مقهى ومطعم النيل الشبابي", rating: "4.3" },
-      universityGate: { distance: "١٫٥كم", time: "١٨ دقيقة مشياً (٥ د سرفيس)", name: "بوابة كلية التجارة والآداب", rating: "4.6" },
-    }
+    lat: 31.0550,
+    lng: 31.3900,
   },
   { 
     id: 6, 
@@ -481,14 +494,8 @@ const BASE_PROPERTIES: PlatformProperty[] = [
     livabilityScore: 81, 
     status: "متاح",
     ownerId: "usr_owner_01",
-    nearbyAmenities: {
-      hospital: { distance: "٤٥٠م", time: "٧ دقائق مشياً", name: "مستشفى الهلال الأحمر بكفر الشيخ", rating: "4.5" },
-      pharmacy: { distance: "٨٠م", time: "دقيقة واحدة", name: "صيدلية النور - شارع بورسعيد", rating: "4.9" },
-      transportation: { distance: "١٠٠م", time: "دقيقة ونصف", name: "موقف محطة قطار كفر الشيخ وسرفيس الجامعة", rating: "4.8" },
-      supermarket: { distance: "٢٠٠م", time: "٣ دقائق", name: "سوبرماركت أولاد رجب ومحل خضار", rating: "4.4" },
-      cafeRestaurant: { distance: "٧٠م", time: "دقيقة واحدة", name: "كافيه استراحة ومطعم وجبات سريعة", rating: "4.5" },
-      universityGate: { distance: "٩٥٠م", time: "١٢ دقيقة مشياً", name: "بوابة الجامعة الرئيسية (شارع الجيش)", rating: "4.7" },
-    }
+    lat: 31.1120,
+    lng: 30.9450,
   },
 ];
 
@@ -713,6 +720,15 @@ export function rejectInspectionRequest(
 export async function syncPlatformPropertiesFromApi(statusParam: string = "all"): Promise<PlatformProperty[]> {
   try {
     const dbApartments = await getApartmentsApi({ status: statusParam });
+    const baseCoordMap: Record<number, { lat: number; lng: number }> = {
+      1: { lat: 31.1107, lng: 30.9388 },
+      2: { lat: 31.1152, lng: 30.9422 },
+      3: { lat: 31.0425, lng: 31.3571 },
+      4: { lat: 30.8001, lng: 30.9995 },
+      5: { lat: 31.0550, lng: 31.3900 },
+      6: { lat: 31.1120, lng: 30.9450 },
+    };
+
     if (Array.isArray(dbApartments) && dbApartments.length > 0) {
       const mapped: PlatformProperty[] = dbApartments.map((a: any) => ({
         id: a.id,
@@ -739,9 +755,9 @@ export async function syncPlatformPropertiesFromApi(statusParam: string = "all")
         status: a.status || "متاح",
         ownerId: a.ownerId,
         inspectionId: a.inspectionId,
-        lat: a.lat,
-        lng: a.lng,
-        nearbyAmenities: a.nearbyAmenities || getEffectiveAmenities(a),
+        lat: a.lat ?? baseCoordMap[a.id]?.lat,
+        lng: a.lng ?? baseCoordMap[a.id]?.lng,
+        nearbyAmenities: a.nearbyAmenities,
       }));
       savePlatformProperties(mapped);
       return mapped;
@@ -756,6 +772,15 @@ export async function syncPlatformPropertiesFromApi(statusParam: string = "all")
  * جلب جميع العقارات المعتمدة والمنشورة على المنصة
  */
 export function getAllPlatformProperties(): PlatformProperty[] {
+  const baseCoordMap: Record<number, { lat: number; lng: number }> = {
+    1: { lat: 31.1107, lng: 30.9388 },
+    2: { lat: 31.1152, lng: 30.9422 },
+    3: { lat: 31.0425, lng: 31.3571 },
+    4: { lat: 30.8001, lng: 30.9995 },
+    5: { lat: 31.0550, lng: 31.3900 },
+    6: { lat: 31.1120, lng: 30.9450 },
+  };
+
   if (typeof window === "undefined") return BASE_PROPERTIES;
   try {
     const raw = localStorage.getItem(STORAGE_PROPERTIES_KEY);
@@ -765,11 +790,15 @@ export function getAllPlatformProperties(): PlatformProperty[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      // التأكد من شمول كافة العقارات لبيانات المنطقة المحيطة الحية
-      return parsed.map((p: PlatformProperty) => ({
-        ...p,
-        nearbyAmenities: getEffectiveAmenities(p),
-      }));
+      return parsed.map((p: PlatformProperty) => {
+        const fallbackCoord = baseCoordMap[p.id];
+        return {
+          ...p,
+          lat: p.lat ?? fallbackCoord?.lat,
+          lng: p.lng ?? fallbackCoord?.lng,
+          nearbyAmenities: p.nearbyAmenities ? getEffectiveAmenities(p) : undefined,
+        };
+      });
     }
     return BASE_PROPERTIES;
   } catch (e) {
