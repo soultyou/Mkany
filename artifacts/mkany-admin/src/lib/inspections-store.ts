@@ -54,6 +54,8 @@ export interface AmenityDetail {
   rating?: string;
   lat?: number;
   lng?: number;
+  osmType?: "node" | "way" | "relation" | string;
+  osmId?: string | number;
 }
 
 export interface NearbyAmenities {
@@ -63,6 +65,12 @@ export interface NearbyAmenities {
   supermarket: AmenityDetail;
   cafeRestaurant: AmenityDetail;
   universityGate: AmenityDetail;
+  hospitalList?: AmenityDetail[];
+  pharmacyList?: AmenityDetail[];
+  transportationList?: AmenityDetail[];
+  supermarketList?: AmenityDetail[];
+  cafeRestaurantList?: AmenityDetail[];
+  universityGateList?: AmenityDetail[];
 }
 
 export interface PlatformProperty {
@@ -157,44 +165,21 @@ const INITIAL_INSPECTIONS: PropertyInspection[] = [
 ];
 
 export function getDefaultAmenities(city: string = "كفر الشيخ", university: string = "جامعة كفر الشيخ"): NearbyAmenities {
-  const isMansoura = city.includes("المنصورة") || university.includes("المنصورة");
-  const isTanta = city.includes("طنطا") || university.includes("طنطا");
-
-  if (isMansoura) {
-    return {
-      hospital: { distance: "٤٠٠م", time: "٦ دقائق مشياً", name: "مستشفى الطوارئ الجامعي بالمنصورة", rating: "4.7" },
-      pharmacy: { distance: "٥٠م", time: "دقيقة واحدة", name: "صيدلية د. رشدي (خدمة ٢٤ ساعة)", rating: "5.0" },
-      transportation: { distance: "١٠٠م", time: "دقيقة ونصف", name: "محطة سرفيس جيهان - بوابة الجامعة", rating: "4.5" },
-      supermarket: { distance: "٢٠٠م", time: "٣ دقائق", name: "سوبرماركت أولاد رجب وهايبر المحطة", rating: "4.3" },
-      cafeRestaurant: { distance: "٥٠م", time: "دقيقة واحدة", name: "كافيه ومساحة مذاكرة بوسطة للطلاب", rating: "4.8" },
-      universityGate: { distance: "٣٠٠م", time: "٤ دقائق مشياً", name: "بوابة الجلاء - جامعة المنصورة", rating: "4.9" },
-    };
-  }
-
-  if (isTanta) {
-    return {
-      hospital: { distance: "٦٠٠م", time: "٨ دقائق مشياً", name: "المستشفى التعليمي العالمي بطنطا", rating: "4.6" },
-      pharmacy: { distance: "١٢٠م", time: "دقيقتان", name: "صيدلية الشروق المركزية", rating: "4.9" },
-      transportation: { distance: "١٨٠م", time: "٣ دقائق", name: "موقف ميكروباصات شارع البحر والمحطة", rating: "4.3" },
-      supermarket: { distance: "٣٥٠م", time: "٥ دقائق", name: "فتح الله جملة ماركت", rating: "4.5" },
-      cafeRestaurant: { distance: "٩٠م", time: "دقيقة واحدة", name: "كافيه لاونج الطلاب ومطاعم سريعة", rating: "4.6" },
-      universityGate: { distance: "٤٥٠م", time: "٦ دقائق مشياً", name: "بوابة مجمع الكليات الطبي - جامعة طنطا", rating: "4.8" },
-    };
-  }
-
+  // Return clean 'no data available' labels as fallbacks to strictly satisfy the 'no fake/invented/hardcoded GIS data' product rule.
+  const emptyLabel = "لا توجد بيانات متاحة";
   return {
-    hospital: { distance: "٥٠٠م", time: "٨ دقائق مشياً", name: "مستشفى كفر الشيخ الجامعي العام", rating: "4.6" },
-    pharmacy: { distance: "١٥٠م", time: "دقيقتان", name: "صيدلية العزبي (خدمة توصيل ٢٤ ساعة)", rating: "5.0" },
-    transportation: { distance: "٢٠٠م", time: "٣ دقائق", name: "محطة سرفيس الجلاء والجامعة وموقف السرفيس", rating: "4.4" },
-    supermarket: { distance: "٣٠0م", time: "٥ دقائق", name: "هايبر كازيون وسوبرماركت خير زمان", rating: "4.4" },
-    cafeRestaurant: { distance: "١٠٠م", time: "دقيقة واحدة", name: "كافيه ومطعم استراحة الطالب للمذاكرة", rating: "4.7" },
-    universityGate: { distance: "٨٠٠م", time: "١٠ دقائق مشياً", name: "بوابة كلية الزراعة / مجمع الكليات", rating: "4.8" },
+    hospital: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    pharmacy: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    transportation: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    supermarket: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    cafeRestaurant: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
+    universityGate: { distance: emptyLabel, time: emptyLabel, name: emptyLabel, rating: undefined },
   };
 }
 
-export function getEffectiveAmenities(property: Partial<PlatformProperty>): NearbyAmenities {
-  const def = getDefaultAmenities(property.city, property.university);
-  if (!property.nearbyAmenities) return def;
+export function getEffectiveAmenities(property: { city?: string; university?: string; nearbyAmenities?: NearbyAmenities } | Partial<PlatformProperty> | any): NearbyAmenities {
+  const def = getDefaultAmenities(property?.city, property?.university);
+  if (!property?.nearbyAmenities) return def;
 
   return {
     hospital: property.nearbyAmenities.hospital || def.hospital,
@@ -219,77 +204,63 @@ export interface AmenityDisplayItem {
 }
 
 export function getAmenitiesDisplayList(amenities: NearbyAmenities, propertyLat?: number, propertyLng?: number): AmenityDisplayItem[] {
-  const baseLat = propertyLat || 31.1128;
-  const baseLng = propertyLng || 30.9392;
+  const emptyLabel = "لا توجد بيانات متاحة";
 
-  return [
-    {
-      key: "universityGate",
-      categoryName: "بوابة الجامعة",
-      distance: amenities.universityGate.distance || "٨٠٠م",
-      time: amenities.universityGate.time || "١٠ دقائق",
-      name: amenities.universityGate.name,
-      rating: amenities.universityGate.rating || "4.8",
-      lat: amenities.universityGate.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "universityGate").lat,
-      lng: amenities.universityGate.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "universityGate").lng,
-      iconType: "universityGate",
-    },
-    {
-      key: "transportation",
-      categoryName: "محطة مواصلات",
-      distance: amenities.transportation.distance || "٢٠٠م",
-      time: amenities.transportation.time || "٣ دقائق",
-      name: amenities.transportation.name,
-      rating: amenities.transportation.rating || "4.4",
-      lat: amenities.transportation.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "transportation").lat,
-      lng: amenities.transportation.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "transportation").lng,
-      iconType: "transportation",
-    },
-    {
-      key: "hospital",
-      categoryName: "أقرب مستشفى",
-      distance: amenities.hospital.distance || "٥٠٠م",
-      time: amenities.hospital.time || "٨ دقائق",
-      name: amenities.hospital.name,
-      rating: amenities.hospital.rating || "4.6",
-      lat: amenities.hospital.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "hospital").lat,
-      lng: amenities.hospital.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "hospital").lng,
-      iconType: "hospital",
-    },
-    {
-      key: "pharmacy",
-      categoryName: "صيدلية",
-      distance: amenities.pharmacy.distance || "١٥٠م",
-      time: amenities.pharmacy.time || "دقيقتان",
-      name: amenities.pharmacy.name,
-      rating: amenities.pharmacy.rating || "5.0",
-      lat: amenities.pharmacy.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "pharmacy").lat,
-      lng: amenities.pharmacy.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "pharmacy").lng,
-      iconType: "pharmacy",
-    },
-    {
-      key: "supermarket",
-      categoryName: "سوبرماركت",
-      distance: amenities.supermarket.distance || "٣٠٠م",
-      time: amenities.supermarket.time || "٥ دقائق",
-      name: amenities.supermarket.name,
-      rating: amenities.supermarket.rating || "4.3",
-      lat: amenities.supermarket.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "supermarket").lat,
-      lng: amenities.supermarket.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "supermarket").lng,
-      iconType: "supermarket",
-    },
-    {
-      key: "cafeRestaurant",
-      categoryName: "كافيه / مطعم",
-      distance: amenities.cafeRestaurant.distance || "١٠٠م",
-      time: amenities.cafeRestaurant.time || "دقيقة واحدة",
-      name: amenities.cafeRestaurant.name,
-      rating: amenities.cafeRestaurant.rating || "4.7",
-      lat: amenities.cafeRestaurant.lat ?? getDerivedAmenityCoords(baseLat, baseLng, "cafeRestaurant").lat,
-      lng: amenities.cafeRestaurant.lng ?? getDerivedAmenityCoords(baseLat, baseLng, "cafeRestaurant").lng,
-      iconType: "cafeRestaurant",
-    },
+  const categories: Array<{
+    key: keyof NearbyAmenities;
+    listKey: keyof NearbyAmenities;
+    categoryName: string;
+    iconType: "hospital" | "pharmacy" | "transportation" | "supermarket" | "cafeRestaurant" | "universityGate";
+  }> = [
+    { key: "universityGate", listKey: "universityGateList", categoryName: "بوابة الجامعة", iconType: "universityGate" },
+    { key: "transportation", listKey: "transportationList", categoryName: "محطة مواصلات", iconType: "transportation" },
+    { key: "hospital", listKey: "hospitalList", categoryName: "أقرب مستشفى", iconType: "hospital" },
+    { key: "pharmacy", listKey: "pharmacyList", categoryName: "صيدلية", iconType: "pharmacy" },
+    { key: "supermarket", listKey: "supermarketList", categoryName: "سوبرماركت", iconType: "supermarket" },
+    { key: "cafeRestaurant", listKey: "cafeRestaurantList", categoryName: "كافيه / مطعم", iconType: "cafeRestaurant" },
   ];
+
+  const result: AmenityDisplayItem[] = [];
+
+  for (const cat of categories) {
+    const list = (amenities[cat.listKey] as any[]) || [];
+    if (list.length > 0) {
+      list.forEach((item, index) => {
+        // Validate coordinates returned by OSM
+        if (item.lat !== undefined && item.lng !== undefined && item.lat >= -90 && item.lat <= 90 && item.lng >= -180 && item.lng <= 180) {
+          result.push({
+            key: `${cat.key}_${index}` as any,
+            categoryName: cat.categoryName,
+            distance: item.distance || emptyLabel,
+            time: item.time || emptyLabel,
+            name: item.name || emptyLabel,
+            rating: item.rating !== undefined && item.rating !== null && item.rating !== "" && item.rating !== "0" && item.rating !== "0.0" ? String(item.rating) : undefined,
+            lat: item.lat,
+            lng: item.lng,
+            iconType: cat.iconType,
+          });
+        }
+      });
+    } else {
+      // If no list, check if the single property is valid and has OSM coordinates (no guessing!)
+      const primary = amenities[cat.key] as any;
+      if (primary && primary.name && primary.name !== emptyLabel && !primary.name.startsWith("لا توجد") && primary.lat !== undefined && primary.lng !== undefined) {
+        result.push({
+          key: cat.key,
+          categoryName: cat.categoryName,
+          distance: primary.distance || emptyLabel,
+          time: primary.time || emptyLabel,
+          name: primary.name || emptyLabel,
+          rating: primary.rating !== undefined && primary.rating !== null && primary.rating !== "" && primary.rating !== "0" && primary.rating !== "0.0" ? String(primary.rating) : undefined,
+          lat: primary.lat,
+          lng: primary.lng,
+          iconType: cat.iconType,
+        });
+      }
+    }
+  }
+
+  return result;
 }
 
 const BASE_PROPERTIES: PlatformProperty[] = [];

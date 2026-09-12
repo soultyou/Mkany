@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, asc, ilike, or } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/auth";
+import { createNotification } from "../lib/notifications-helper";
 
 const router = Router();
 
@@ -172,6 +173,19 @@ router.post("/conversations", requireAuth, async (req: Request, res: Response) =
       body: message.trim(),
       createdAt: new Date(),
     });
+
+    try {
+      await createNotification({
+        userId: "admin",
+        type: "admin_new_support",
+        title: "محادثة دعم جديدة",
+        body: `قام مستخدم بفتح تذكرة دعم جديدة بموضوع: "${subject.trim()}" (رقم التذكرة: ${conversationCode})`,
+        referenceType: "support",
+        referenceId: convId,
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch notification on support creation:", notifErr);
+    }
 
     const fullConversation = await db.query.supportConversations.findFirst({
       where: eq(supportConversations.id, convId),
@@ -441,6 +455,32 @@ router.post("/conversations/:id/messages", requireAuth, async (req: Request, res
       updatedAt: new Date(),
     }).where(eq(supportConversations.id, conversation.id));
 
+    try {
+      if (isAdmin) {
+        // Support agent replied, notify student or owner who requested support
+        await createNotification({
+          userId: conversation.userId,
+          type: "support_reply_from_admin",
+          title: "لديك رسالة جديدة من دعم مكاني",
+          body: `قام ممثل دعم مكاني بالرد على استفسارك في تذكرة الدعم برقم: ${conversation.conversationCode}`,
+          referenceType: "support",
+          referenceId: conversation.id,
+        });
+      } else {
+        // User replied, notify admin
+        await createNotification({
+          userId: "admin",
+          type: "admin_support_reply",
+          title: "رد جديد على تذكرة الدعم",
+          body: `قام المستخدم بالرد على تذكرة الدعم برقم: ${conversation.conversationCode}`,
+          referenceType: "support",
+          referenceId: conversation.id,
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch support reply notification:", notifErr);
+    }
+
     return res.status(201).json({
       message: "تم إرسال الرسالة بنجاح",
       messageData: formatSupportMessage({
@@ -507,6 +547,21 @@ router.patch("/conversations/:id/status", requireAuth, requireAdmin, async (req:
     await db.update(supportConversations)
       .set(updateFields)
       .where(eq(supportConversations.id, id));
+
+    try {
+      if (status === "resolved" || status === "closed") {
+        await createNotification({
+          userId: conversation.userId,
+          type: "support_status_changed",
+          title: "تحديث حالة تذكرة الدعم",
+          body: `تم تغيير حالة تذكرة الدعم الخاصة بك إلى: ${status === 'resolved' ? 'تم حلها' : 'مغلقة'} (رقم التذكرة: ${conversation.conversationCode})`,
+          referenceType: "support",
+          referenceId: id,
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch support status change notification:", notifErr);
+    }
 
     const updated = await db.query.supportConversations.findFirst({
       where: eq(supportConversations.id, id),

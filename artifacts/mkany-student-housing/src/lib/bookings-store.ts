@@ -371,3 +371,24 @@ export async function recordManualRentPaymentApi(
     return null;
   }
 }
+
+/**
+ * رفع إيصال اشتراك مكاني (1200 جنيه) بواسطة الطالب
+ */
+export async function uploadSubscriptionReceiptApi(
+  bookingId: string,
+  receiptImageUrl: string
+): Promise<StudentBooking | null> {
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}/subscription/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receiptImageUrl }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to upload subscription receipt:", err);
+    return null;
+  }
+}

@@ -24,6 +24,8 @@ import { inspections } from "./inspections";
 import { bookings, rentPayments } from "./bookings";
 import { favorites } from "./favorites";
 import { supportConversations, supportMessages } from "./support";
+import { notifications } from "./notifications";
+import { serviceRatings } from "./service-ratings";
 
 export * from "./users";
 export * from "./apartments";
@@ -31,6 +33,8 @@ export * from "./inspections";
 export * from "./bookings";
 export * from "./favorites";
 export * from "./support";
+export * from "./notifications";
+export * from "./service-ratings";
 
 export const usersRelations = relations(users, ({ many }) => ({
   apartments: many(apartments),

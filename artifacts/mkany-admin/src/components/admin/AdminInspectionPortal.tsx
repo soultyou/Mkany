@@ -294,6 +294,9 @@ export function AdminInspectionPortal({
     getDefaultAmenities("كفر الشيخ", "جامعة كفر الشيخ")
   );
 
+  // إدارة وتعيين تقييمات مكاني للمنطقة المحيطة أثناء تفعيل العقار ونشره
+  const [activationAmenities, setActivationAmenities] = useState<NearbyAmenities | null>(null);
+
   // تحديث القوائم
   const refreshAll = () => {
     syncInspectionsFromApi();
@@ -356,6 +359,8 @@ export function AdminInspectionPortal({
     if (!selectedInspection) return;
 
     try {
+      const amenitiesToPass = activationAmenities || getEffectiveAmenities(selectedInspection);
+
       const res = await publishInspectionApi(selectedInspection.id, {
         title: selectedInspection.title,
         pricePerMonth: selectedInspection.pricePerMonth,
@@ -373,12 +378,14 @@ export function AdminInspectionPortal({
         livabilityScore,
         inspectorReport,
         finalImages: selectedInspection.finalImages?.length ? selectedInspection.finalImages : selectedInspection.initialPhotos,
+        nearbyAmenities: amenitiesToPass,
       });
 
       activateAndPublishProperty(selectedInspection.id, {
         livabilityScore,
         video360Url: video360Url || selectedInspection.video360Url,
         inspectorReport,
+        nearbyAmenities: amenitiesToPass,
       });
 
       openToast(`🎉 تم تفعيل ونشر "${selectedInspection.title}" رسمياً للطلاب مع صور وجولة 360°!`);
@@ -1381,6 +1388,7 @@ export function AdminInspectionPortal({
                         <button
                           onClick={() => {
                             setSelectedInspection(insp);
+                            setActivationAmenities(getEffectiveAmenities(insp));
                             setActionModal("activate");
                           }}
                           className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-700"
@@ -2878,7 +2886,7 @@ export function AdminInspectionPortal({
       <StandardModal
         isOpen={actionModal === "activate" && Boolean(selectedInspection)}
         onClose={() => setActionModal(null)}
-        maxWidthClassName="max-w-lg"
+        maxWidthClassName="max-w-3xl"
         title="تفعيل الوحدة ونشرها للطلاب مع جولة 360°"
         subtitle="تأكيد فحص العقار على الطبيعة وإدخال رابط الجولة الافتراضية ومعدل الجودة لنشره فوراً في الكتالوج العام"
         testId="admin-modal-activate-inspection"
@@ -2957,8 +2965,22 @@ export function AdminInspectionPortal({
               />
             </div>
 
+            {/* تقييمات مكاني وإدارة المنطقة المحيطة */}
+            {selectedInspection && (
+              <div className="border-t border-border pt-3">
+                <NearbyAmenitiesForm
+                  amenities={activationAmenities || getEffectiveAmenities(selectedInspection)}
+                  onChange={(upd) => setActivationAmenities(upd)}
+                  city={selectedInspection.city}
+                  university={selectedInspection.university}
+                  propertyLat={selectedInspection.lat ? Number(selectedInspection.lat) : undefined}
+                  propertyLng={selectedInspection.lng ? Number(selectedInspection.lng) : undefined}
+                />
+              </div>
+            )}
+
             <div className="rounded-xl bg-emerald-500/10 p-3 text-[11px] text-emerald-800 dark:text-emerald-300 leading-5">
-              ✓ عند الضغط على "تفعيل ونشر"، سيظهر العقار مباشرة لجميع الطلاب في صفحة "اكتشف السكن" كعقار موثق بمعاينة ميدانية.
+              ✓ عند الضغط على "تفعيل ونشر"، سيظهر العقار مباشرة لجميع الطلاب في صفحة "اكتشف السكن" كعقار موثق بمعاينة ميدانية مع تقييمات مكاني المعتمدة للخدمات.
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

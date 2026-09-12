@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { db, users } from "@workspace/db";
+import { db, users, bookings, rentPayments, apartments } from "@workspace/db";
 import { eq, or, and, isNotNull, inArray, desc } from "drizzle-orm";
-import { requireAuth, requireSuperAdmin } from "../middlewares/auth";
+import { requireAuth, requireSuperAdmin, requireAdmin } from "../middlewares/auth";
 
 const adminRouter = Router();
 
@@ -295,6 +295,275 @@ adminRouter.delete("/admins/:id", requireAuth, requireSuperAdmin, async (req: Re
     return res.json({ success: true, message: "Admin user deleted successfully" });
   } catch (error) {
     req.log.error({ error }, "Failed to delete admin");
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * GET /api/admin/financial/summary
+ * Returns fully aggregated real financial metrics for accounting & data analytics.
+ * Strictly restricted to Admin and Super Admin roles.
+ */
+adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const yearFilter = req.query.year as string | undefined;
+    const monthFilter = req.query.month as string | undefined;
+
+    // Fetch raw authoritative datasets from PostgreSQL
+    const allBookings = await db.query.bookings.findMany({
+      with: {
+        student: true,
+      }
+    });
+
+    const allRentPayments = await db.query.rentPayments.findMany();
+
+    const allApartments = await db.query.apartments.findMany({
+      with: {
+        bookings: true
+      }
+    });
+
+    const allUsers = await db.query.users.findMany({
+      where: eq(users.role, "student")
+    });
+
+    // 1. Subscription Metrics (Approved, Pending, Rejected, Pro)
+    const approvedSubs = allBookings.filter(b => b.subscriptionStatus === "approved");
+    const pendingSubs = allBookings.filter(b => b.subscriptionStatus === "pending_review");
+    const rejectedSubs = allBookings.filter(b => b.subscriptionStatus === "rejected");
+    const proUsers = allUsers.filter(u => u.subscriptionStatus === "approved");
+
+    // 2. Rent Metrics (Paid, Due, Overdue, Pending Review, Rejected)
+    const paidRent = allRentPayments.filter(p => p.status === "paid");
+    const dueRent = allRentPayments.filter(p => p.status === "due");
+    const overdueRent = allRentPayments.filter(p => p.status === "overdue");
+    const pendingRent = allRentPayments.filter(p => p.status === "pending_review");
+    const rejectedRent = allRentPayments.filter(p => p.status === "rejected");
+
+    const totalRentPaidAmount = paidRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRentDueAmount = dueRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRentOverdueAmount = overdueRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRentPendingAmount = pendingRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRentRejectedAmount = rejectedRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    // 3. Deposit Metrics
+    const totalDepositsRequired = allBookings.reduce((sum, b) => sum + (b.depositAmount || 0), 0);
+    const totalDepositsPaid = allBookings.filter(b => b.depositStatus === "paid").reduce((sum, b) => sum + (b.depositAmount || 0), 0);
+    const totalDepositsUnpaid = Math.max(0, totalDepositsRequired - totalDepositsPaid);
+
+    // 4. Overall Revenue (Approved Subscription + Paid Rent + Paid Deposit)
+    const subscriptionRevenue = approvedSubs.reduce((sum, b) => sum + (b.subscriptionAmount || 1200), 0);
+    const totalRevenue = subscriptionRevenue + totalRentPaidAmount + totalDepositsPaid;
+
+    // 5. Occupancy metrics based on existing authoritative calculations
+    const totalPropertiesCount = allApartments.length;
+    let availablePropertiesCount = 0;
+    let reservedPropertiesCount = 0;
+    let fullyBookedPropertiesCount = 0;
+
+    let totalPlacesCapacity = 0;
+    let totalPlacesOccupied = 0;
+
+    allApartments.forEach(property => {
+      const capacity = property.bedrooms || 0;
+      const currentRoommates = property.currentRoommates || 0;
+      const propertyBookings = property.bookings || [];
+
+      const activeBookingsCount = propertyBookings.filter((b: any) => b.status === "confirmed" || b.status === "pending_review").length;
+      const occupiedPlaces = currentRoommates + activeBookingsCount;
+      const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      const isFull = availablePlaces <= 0;
+
+      totalPlacesCapacity += capacity;
+      totalPlacesOccupied += occupiedPlaces;
+
+      if (isFull) {
+        fullyBookedPropertiesCount++;
+      } else {
+        availablePropertiesCount++;
+      }
+
+      if (activeBookingsCount > 0) {
+        reservedPropertiesCount++;
+      }
+    });
+
+    const totalPlacesAvailable = Math.max(0, totalPlacesCapacity - totalPlacesOccupied);
+    const occupancyRate = totalPlacesCapacity > 0 ? Math.round((totalPlacesOccupied / totalPlacesCapacity) * 100) : 0;
+
+    // Apply Year and Month Filtering
+    let filteredRevenue = totalRevenue;
+    let filteredSubscriptionRevenue = subscriptionRevenue;
+    let filteredCollectedRent = totalRentPaidAmount;
+    let filteredDueRent = totalRentDueAmount;
+    let filteredCollectedDeposit = totalDepositsPaid;
+
+    const matchesFilter = (dateObj: Date | string | null | undefined, year: string | undefined, month: string | undefined): boolean => {
+      if (!dateObj) return false;
+      let d: Date;
+      if (typeof dateObj === "string") {
+        d = new Date(dateObj);
+      } else {
+        d = dateObj;
+      }
+      if (isNaN(d.getTime())) {
+        if (typeof dateObj === "string") {
+          const parts = dateObj.split("-");
+          if (parts.length >= 2) {
+            const y = parts[0];
+            const m = parts[1];
+            if (year && y !== year) return false;
+            if (month && m !== month) return false;
+            return true;
+          }
+        }
+        return false;
+      }
+      const yStr = d.getFullYear().toString();
+      const mStr = (d.getMonth() + 1).toString().padStart(2, "0");
+      if (year && yStr !== year) return false;
+      if (month && mStr !== month) return false;
+      return true;
+    };
+
+    if (yearFilter || monthFilter) {
+      const filteredApprovedSubs = approvedSubs.filter(b => matchesFilter(b.subscriptionApprovedAt || b.createdAt, yearFilter, monthFilter));
+      filteredSubscriptionRevenue = filteredApprovedSubs.reduce((sum, b) => sum + (b.subscriptionAmount || 1200), 0);
+
+      const filteredPaidRent = paidRent.filter(p => matchesFilter(p.paidAt || p.createdAt, yearFilter, monthFilter));
+      filteredCollectedRent = filteredPaidRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const filteredDueRentPayments = dueRent.filter(p => {
+        return matchesFilter(p.dueDate || p.createdAt, yearFilter, monthFilter);
+      });
+      filteredDueRent = filteredDueRentPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const filteredPaidDeposits = allBookings.filter(b => b.depositStatus === "paid" && matchesFilter(b.depositPaidAt || b.createdAt, yearFilter, monthFilter));
+      filteredCollectedDeposit = filteredPaidDeposits.reduce((sum, b) => sum + (b.depositAmount || 0), 0);
+
+      filteredRevenue = filteredSubscriptionRevenue + filteredCollectedRent + filteredCollectedDeposit;
+    }
+
+    // Generate monthly revenue grouping data for standard chart
+    const revenueItems: { amount: number, date: Date, type: string }[] = [];
+
+    approvedSubs.forEach(b => {
+      const date = b.subscriptionApprovedAt || b.createdAt;
+      if (date) {
+        revenueItems.push({
+          amount: b.subscriptionAmount || 1200,
+          date: new Date(date),
+          type: "subscription"
+        });
+      }
+    });
+
+    paidRent.forEach(p => {
+      const date = p.paidAt || p.createdAt;
+      if (date) {
+        revenueItems.push({
+          amount: p.amount || 0,
+          date: new Date(date),
+          type: "rent"
+        });
+      }
+    });
+
+    allBookings.filter(b => b.depositStatus === "paid").forEach(b => {
+      const date = b.depositPaidAt || b.createdAt;
+      if (date) {
+        revenueItems.push({
+          amount: b.depositAmount || 0,
+          date: new Date(date),
+          type: "deposit"
+        });
+      }
+    });
+
+    const monthlyGroups: Record<string, { total: number, subscription: number, rent: number, deposit: number }> = {};
+    revenueItems.forEach(item => {
+      if (isNaN(item.date.getTime())) return;
+      const yyyymm = `${item.date.getFullYear()}-${(item.date.getMonth() + 1).toString().padStart(2, "0")}`;
+      if (!monthlyGroups[yyyymm]) {
+        monthlyGroups[yyyymm] = { total: 0, subscription: 0, rent: 0, deposit: 0 };
+      }
+      monthlyGroups[yyyymm].total += item.amount;
+      if (item.type === "subscription") monthlyGroups[yyyymm].subscription += item.amount;
+      if (item.type === "rent") monthlyGroups[yyyymm].rent += item.amount;
+      if (item.type === "deposit") monthlyGroups[yyyymm].deposit += item.amount;
+    });
+
+    const monthlyRevenueData = Object.keys(monthlyGroups).sort().map(month => {
+      return {
+        month,
+        total: monthlyGroups[month].total,
+        subscription: monthlyGroups[month].subscription,
+        rent: monthlyGroups[month].rent,
+        deposit: monthlyGroups[month].deposit,
+      };
+    });
+
+    // Strictly returns aggregated metrics. Absolutely no PII exposed.
+    return res.json({
+      summary: {
+        totalRevenue: filteredRevenue,
+        subscriptionRevenue: filteredSubscriptionRevenue,
+        collectedRent: filteredCollectedRent,
+        dueRent: filteredDueRent,
+        collectedDeposit: filteredCollectedDeposit,
+        proUsersCount: proUsers.length,
+        unfilteredTotalRevenue: totalRevenue,
+        unfilteredSubscriptionRevenue: subscriptionRevenue,
+        unfilteredCollectedRent: totalRentPaidAmount,
+        unfilteredDueRent: totalRentDueAmount,
+        unfilteredCollectedDeposit: totalDepositsPaid,
+      },
+      subscription: {
+        approvedCount: approvedSubs.length,
+        pendingCount: pendingSubs.length,
+        rejectedCount: rejectedSubs.length,
+        proMembersCount: proUsers.length,
+        totalRevenue: subscriptionRevenue,
+      },
+      rent: {
+        totalCollected: totalRentPaidAmount,
+        totalDue: totalRentDueAmount,
+        totalOverdue: totalRentOverdueAmount,
+        paidCount: paidRent.length,
+        dueCount: dueRent.length,
+        overdueCount: overdueRent.length,
+        pendingCount: pendingRent.length,
+        rejectedCount: rejectedRent.length,
+        totalRentPendingAmount,
+        totalRentRejectedAmount
+      },
+      deposit: {
+        totalRequired: totalDepositsRequired,
+        totalPaid: totalDepositsPaid,
+        totalUnpaid: totalDepositsUnpaid,
+      },
+      occupancy: {
+        totalProperties: totalPropertiesCount,
+        availableProperties: availablePropertiesCount,
+        reservedProperties: reservedPropertiesCount,
+        fullyBookedProperties: fullyBookedPropertiesCount,
+        totalPlaces: totalPlacesCapacity,
+        occupiedPlaces: totalPlacesOccupied,
+        availablePlaces: totalPlacesAvailable,
+        occupancyRate,
+      },
+      monthlyRevenueData,
+      paymentStatusCounts: {
+        paid: paidRent.length,
+        pending_review: pendingRent.length,
+        due: dueRent.length,
+        overdue: overdueRent.length,
+        rejected: rejectedRent.length,
+      }
+    });
+  } catch (error) {
+    req.log.error({ error }, "Failed to calculate financial analytics");
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

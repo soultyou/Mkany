@@ -39,7 +39,7 @@ interface InteractiveLeafletMapProps {
   propertyLat?: number;
   propertyLng?: number;
   amenities: NearbyAmenities;
-  selectedAmenityKey?: keyof NearbyAmenities | null;
+  selectedAmenityKey?: string | null;
   onSelectAmenity?: (item: AmenityDisplayItem) => void;
   className?: string;
 }
@@ -151,15 +151,15 @@ export function InteractiveLeafletMap({
       const aLng = amenity.lng ?? effectivePropLng;
 
       const markerColor =
-        amenity.key === "universityGate"
+        amenity.iconType === "universityGate"
           ? "bg-purple-600 text-white"
-          : amenity.key === "hospital"
+          : amenity.iconType === "hospital"
           ? "bg-rose-600 text-white"
-          : amenity.key === "pharmacy"
+          : amenity.iconType === "pharmacy"
           ? "bg-emerald-600 text-white"
-          : amenity.key === "transportation"
+          : amenity.iconType === "transportation"
           ? "bg-blue-600 text-white"
-          : amenity.key === "supermarket"
+          : amenity.iconType === "supermarket"
           ? "bg-amber-600 text-white"
           : "bg-orange-600 text-white";
 
@@ -451,9 +451,13 @@ export function InteractiveLeafletMap({
                     <span className="font-bold text-xs text-foreground">
                       {activeItem.categoryName}
                     </span>
-                    {activeItem.rating && (
-                      <span className="rounded bg-amber-500/15 px-1.5 py-0.2 text-[10px] font-bold text-amber-600">
-                        ⭐ {activeItem.rating}
+                    {activeItem.rating && activeItem.rating !== "0" && activeItem.rating !== "0.0" ? (
+                      <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-bold text-amber-600">
+                        ⭐ تقييم مكاني: {activeItem.rating} / 5
+                      </span>
+                    ) : (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        لم يتم تقييمه بعد
                       </span>
                     )}
                   </div>

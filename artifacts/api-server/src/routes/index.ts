@@ -9,6 +9,8 @@ import favoritesRouter from "./favorites";
 import usersRouter from "./users";
 import supportRouter from "./support";
 import adminRouter from "./admin";
+import notificationsRouter from "./notifications";
+import geoRouter from "./geo";
 import { ensureSeedApartments } from "../lib/seed-apartments";
 
 // Pre-seed base apartments in PostgreSQL on startup
@@ -28,5 +30,7 @@ router.use("/favorites", favoritesRouter);
 router.use("/users", usersRouter);
 router.use("/support", supportRouter);
 router.use("/admin", adminRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/geo", geoRouter);
 
 export default router;

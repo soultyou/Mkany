@@ -31,6 +31,7 @@ import {
 } from "@/lib/inspections-store";
 import { getStudentFavoritesApi, addFavoriteApi, removeFavoriteApi } from "@/lib/favorites-store";
 import { InteractiveLeafletMap } from "@/components/map/InteractiveLeafletMap";
+import { calcHaversineDistanceMeters } from "@/lib/geo-utils";
 const logo = "/mkany-logo.png";
 
 type ActiveViewType = "listings" | "studentDashboard" | "ownerPublic" | "ownerDashboard";
@@ -95,6 +96,8 @@ export function Modal({ children, onClose, wide = false, label }: { children: Re
     </StandardModal>
   );
 }
+
+import { NotificationBell } from "@/components/ui/NotificationBell";
 
 function Header({ 
   light, 
@@ -199,6 +202,7 @@ function Header({
 
           <SignedIn>
             <div className="flex items-center gap-3">
+              <NotificationBell />
               <div className="hidden xl:flex flex-col text-right leading-tight">
                 <span className="text-xs font-bold text-foreground">
                   أهلاً بك، {user?.fullName?.split(" ")[0]} 👋
@@ -355,8 +359,47 @@ function PropertyDetail({
 }) {
   const [media, setMedia] = useState<"photos" | "video">("photos"); 
   const [photo, setPhoto] = useState(0);
-  const [selectedAmenityKey, setSelectedAmenityKey] = useState<keyof NearbyAmenities | null>("universityGate");
+  const [selectedAmenityKey, setSelectedAmenityKey] = useState<string | null>(null);
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
+
+  const [dynamicAmenitiesData, setDynamicAmenitiesData] = useState<NearbyAmenities | null>(null);
+  const [isLoadingAmenities, setIsLoadingAmenities] = useState(false);
+
+  useEffect(() => {
+    const lat = (property as any).lat;
+    const lng = (property as any).lng;
+    if (!lat || !lng) {
+      setDynamicAmenitiesData(null);
+      return;
+    }
+
+    let active = true;
+    setIsLoadingAmenities(true);
+
+    async function fetchFreshAmenities() {
+      try {
+        const res = await fetch(`/api/geo/amenities?lat=${lat}&lng=${lng}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data.success) {
+            setDynamicAmenitiesData(data.amenities);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch dynamic amenities:", err);
+      } finally {
+        if (active) {
+          setIsLoadingAmenities(false);
+        }
+      }
+    }
+
+    fetchFreshAmenities();
+
+    return () => {
+      active = false;
+    };
+  }, [property.id, (property as any).lat, (property as any).lng]);
 
   const getCalendarMonthName = (offset: number) => {
     const d = new Date();
@@ -461,14 +504,135 @@ function PropertyDetail({
     [Users, "الشاغر الحالي", availablePlaces > 0 ? `${availablePlaces} أماكن` : "مكتمل الحجز"]
   ];
   
-  // بيانات الخدمات والمنطقة المحيطة الديناميكية المعتمدة من الآدمن
+  // بيانات الخدمات والمنطقة المحيطة الديناميكية المعتمدة من الآدمن أو المستردة ديناميكياً من الخريطة
   const effectiveAmenities = useMemo(() => {
+    if (dynamicAmenitiesData) {
+      return dynamicAmenitiesData;
+    }
     return getEffectiveAmenities(property as any);
-  }, [property]);
+  }, [dynamicAmenitiesData, property]);
 
-  const dynamicAmenities = useMemo(() => {
+  // State for calculated routes to avoid repeated/duplicate API calls
+  const [routesMap, setRoutesMap] = useState<Record<string, {
+    walking?: { distance: string; duration: string; distanceMeters?: number; error?: boolean };
+    driving?: { distance: string; duration: string; distanceMeters?: number; error?: boolean };
+  }>>({});
+
+  const baseAmenitiesList = useMemo(() => {
     return getAmenitiesDisplayList(effectiveAmenities, (property as any).lat, (property as any).lng);
   }, [effectiveAmenities, property]);
+
+  // Auto-select first available amenity when list loads
+  useEffect(() => {
+    if (baseAmenitiesList.length > 0) {
+      const firstUniv = baseAmenitiesList.find(a => a.key.toString().startsWith("universityGate"));
+      if (firstUniv) {
+        setSelectedAmenityKey(firstUniv.key);
+      } else {
+        setSelectedAmenityKey(baseAmenitiesList[0].key);
+      }
+    } else {
+      setSelectedAmenityKey(null);
+    }
+  }, [baseAmenitiesList]);
+
+  // Effect to fetch walking and driving routes lazily for the active property
+  useEffect(() => {
+    const propLat = (property as any).lat;
+    const propLng = (property as any).lng;
+    if (!propLat || !propLng) return;
+
+    let active = true;
+
+    async function fetchAllRoutes() {
+      baseAmenitiesList.forEach(async (amenity) => {
+        const cacheKey = `${propLat},${propLng}-${amenity.lat},${amenity.lng}`;
+        if (routesMap[cacheKey]) {
+          return; // Already fetched
+        }
+
+        // Fetch walking route
+        let walkingResult: any = null;
+        try {
+          const res = await fetch(`/api/geo/route?originLat=${propLat}&originLng=${propLng}&destinationLat=${amenity.lat}&destinationLng=${amenity.lng}&mode=walking`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              walkingResult = { distance: data.distanceFormatted, duration: data.durationFormatted, distanceMeters: data.distanceMeters };
+            } else {
+              walkingResult = { error: true };
+            }
+          } else {
+            walkingResult = { error: true };
+          }
+        } catch {
+          walkingResult = { error: true };
+        }
+
+        // Fetch driving route
+        let drivingResult: any = null;
+        try {
+          const res = await fetch(`/api/geo/route?originLat=${propLat}&originLng=${propLng}&destinationLat=${amenity.lat}&destinationLng=${amenity.lng}&mode=driving`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              drivingResult = { distance: data.distanceFormatted, duration: data.durationFormatted, distanceMeters: data.distanceMeters };
+            } else {
+              drivingResult = { error: true };
+            }
+          } else {
+            drivingResult = { error: true };
+          }
+        } catch {
+          drivingResult = { error: true };
+        }
+
+        if (active) {
+          setRoutesMap((prev) => ({
+            ...prev,
+            [cacheKey]: {
+              walking: walkingResult,
+              driving: drivingResult,
+            }
+          }));
+        }
+      });
+    }
+
+    fetchAllRoutes();
+
+    return () => {
+      active = false;
+    };
+  }, [property.id, baseAmenitiesList]);
+
+  // Sort amenities by actual walking route distance where possible, fallback to verified geographic distance
+  const dynamicAmenities = useMemo(() => {
+    const propLat = (property as any).lat;
+    const propLng = (property as any).lng;
+    
+    if (!propLat || !propLng) {
+      return baseAmenitiesList;
+    }
+
+    return [...baseAmenitiesList].sort((a, b) => {
+      const cacheKeyA = `${propLat},${propLng}-${a.lat},${a.lng}`;
+      const cacheKeyB = `${propLat},${propLng}-${b.lat},${b.lng}`;
+
+      const routeA = routesMap[cacheKeyA];
+      const routeB = routesMap[cacheKeyB];
+
+      const distA = routeA?.walking && !routeA.walking.error && routeA.walking.distanceMeters !== undefined
+        ? routeA.walking.distanceMeters 
+        : calcHaversineDistanceMeters(propLat, propLng, a.lat || 0, a.lng || 0);
+
+      const distB = routeB?.walking && !routeB.walking.error && routeB.walking.distanceMeters !== undefined
+        ? routeB.walking.distanceMeters 
+        : calcHaversineDistanceMeters(propLat, propLng, b.lat || 0, b.lng || 0);
+
+      return distA - distB;
+    });
+  }, [baseAmenitiesList, property, routesMap]);
 
   // سياسات وقوانين العقار
   const rules = property.rules || "";
@@ -681,9 +845,22 @@ function PropertyDetail({
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {dynamicAmenities.map((item) => {
           const isSelected = selectedAmenityKey === item.key;
+          const propLat = (property as any).lat;
+          const propLng = (property as any).lng;
+          const cacheKey = propLat && propLng ? `${propLat},${propLng}-${item.lat},${item.lng}` : "";
+          const route = routesMap[cacheKey];
+          
+          const geoMeters = propLat && propLng && item.lat && item.lng
+            ? calcHaversineDistanceMeters(propLat, propLng, item.lat, item.lng)
+            : null;
+            
+          const geoDistanceFormatted = geoMeters !== null
+            ? (geoMeters < 1000 ? `${Math.round(geoMeters)} م` : `${(geoMeters / 1000).toFixed(1).replace(".", "٫")} كم`)
+            : "لا توجد بيانات متاحة";
+
           return (
             <div 
-              className={`flex items-center gap-3 rounded-xl border p-3 shadow-xs cursor-pointer transition-all ${
+              className={`flex flex-col gap-2 rounded-xl border p-3.5 shadow-xs cursor-pointer transition-all ${
                 isSelected 
                   ? "border-primary bg-primary/5 ring-1 ring-primary/40" 
                   : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
@@ -692,18 +869,71 @@ function PropertyDetail({
               onClick={() => setSelectedAmenityKey(item.key)}
               data-testid={`amenity-item-${item.key}`}
             >
-              <div className={`rounded-lg p-2.5 shrink-0 ${isSelected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
-                {item.categoryName.includes("جامعة") ? <GraduationCap size={18} /> : item.categoryName.includes("مطعم") || item.categoryName.includes("كافيه") ? <CoffeeIcon /> : <MapPin size={18} />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                  <strong className="block text-sm text-foreground">{item.categoryName}</strong>
-                  {isSelected && <span className="text-[10px] font-bold text-primary">المسار نشط 📍</span>}
+              <div className="flex items-start gap-3">
+                <div className={`rounded-lg p-2.5 shrink-0 ${isSelected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                  {item.categoryName.includes("جامعة") ? <GraduationCap size={18} /> : item.categoryName.includes("مطعم") || item.categoryName.includes("كافيه") ? <CoffeeIcon /> : <MapPin size={18} />}
                 </div>
-                <span className="text-[11px] text-muted-foreground block">{item.distance} · {item.time}</span>
-                {item.name && <span className="block text-[10px] text-primary font-medium truncate mt-0.5">{item.name}</span>}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <strong className="block text-sm text-foreground">{item.categoryName}</strong>
+                    {isSelected && <span className="text-[10px] font-bold text-primary shrink-0">المسار نشط 📍</span>}
+                  </div>
+                  {item.name && <span className="block text-[11px] text-primary font-medium truncate mt-0.5">{item.name}</span>}
+                </div>
+                {item.rating && item.rating !== "0" && item.rating !== "0.0" ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 shrink-0"
+                    title="تقييم مكاني المعتمد"
+                  >
+                    <span>★</span>
+                    <span>تقييم مكاني: {item.rating} / 5</span>
+                  </span>
+                ) : (
+                  <span
+                    className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shrink-0"
+                    title="لم يتم تقييمه بعد من قِبل إدارة مكاني"
+                  >
+                    لم يتم تقييمه بعد
+                  </span>
+                )}
               </div>
-              <span className="text-[11px] font-bold text-amber-500 shrink-0">{item.rating || "4.8"} / ٥</span>
+
+              <div className="border-t border-dashed border-border/80 pt-2 mt-1 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>المسافة الجغرافية:</span>
+                  <span className="font-semibold text-foreground">{geoDistanceFormatted}</span>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-dashed border-border/40 pt-1.5">
+                  <span className="flex items-center gap-1 font-bold text-emerald-600">
+                    <span>🚶</span> مشي:
+                  </span>
+                  {route ? (
+                    route.walking?.error ? (
+                      <span className="text-[10px] text-red-500 font-medium">تعذر حساب مسار المشي</span>
+                    ) : (
+                      <span className="font-semibold text-foreground">{route.walking?.distance} ({route.walking?.duration})</span>
+                    )
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground/50 animate-pulse">جاري الحساب...</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 font-bold text-blue-600">
+                    <span>🚗</span> سيارة:
+                  </span>
+                  {route ? (
+                    route.driving?.error ? (
+                      <span className="text-[10px] text-red-500 font-medium">تعذر حساب مسار السيارة</span>
+                    ) : (
+                      <span className="font-semibold text-foreground">{route.driving?.distance} ({route.driving?.duration})</span>
+                    )
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground/50 animate-pulse">جاري الحساب...</span>
+                  )}
+                </div>
+              </div>
             </div>
           );
         })}

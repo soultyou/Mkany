@@ -3,6 +3,10 @@ import { db, inspections, apartments, apartmentPhotos } from "@workspace/db";
 import { eq, desc, and, or } from "drizzle-orm";
 import { getAuth } from "@clerk/express";
 import { requireAuth, requireAdmin, requireOwner } from "../middlewares/auth";
+import { createNotification } from "../lib/notifications-helper";
+import { resolveAndExtractMapLink, isValidCoordinate } from "../lib/link-parser";
+import { fetchNearbyAmenitiesFromOverpass } from "../lib/overpass";
+import { validateAmenitiesRatings, persistServiceRating } from "../lib/rating-validator";
 
 const router = Router();
 
@@ -135,6 +139,28 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       })
       .returning();
 
+    try {
+      await createNotification({
+        userId: ownerId,
+        type: "owner_inspection_created",
+        title: "تم استلام طلب المعاينة",
+        body: `تم استلام طلب المعاينة لعقارك بنجاح وجاري تنسيق الموعد وتحديث الحالة.`,
+        referenceType: "inspection",
+        referenceId: created.id,
+      });
+
+      await createNotification({
+        userId: "admin",
+        type: "admin_new_inspection",
+        title: "طلب معاينة جديد",
+        body: `قام المالك ${ownerName} بتقديم طلب معاينة جديد لسكن طلابي في ${created.city}.`,
+        referenceType: "inspection",
+        referenceId: created.id,
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on inspection creation:", notifErr);
+    }
+
     return res.status(201).json(created);
   } catch (error: any) {
     req.log.error(error);
@@ -228,6 +254,41 @@ router.patch("/:id", requireAuth, async (req, res) => {
       .where(eq(inspections.id, id))
       .returning();
 
+    try {
+      if (isAdmin && body.status !== undefined && body.status !== existing.status) {
+        if (body.status === "scheduled") {
+          await createNotification({
+            userId: existing.ownerId,
+            type: "inspection_scheduled",
+            title: "تم تحديد موعد المعاينة",
+            body: `تم تحديد موعد معاينة عقارك بتاريخ: ${body.scheduledDate || updated.scheduledDate || ''} مع المفتش ${body.inspectorName || updated.inspectorName || ''}`,
+            referenceType: "inspection",
+            referenceId: id,
+          });
+        } else if (body.status === "completed") {
+          await createNotification({
+            userId: existing.ownerId,
+            type: "inspection_completed",
+            title: "اكتملت معاينة العقار",
+            body: "اكتملت المعاينة والتقرير الخاص بعقارك بنجاح من قبل فريق مكاني وجاري إعداد التقرير النهائي.",
+            referenceType: "inspection",
+            referenceId: id,
+          });
+        } else if (body.status === "rejected") {
+          await createNotification({
+            userId: existing.ownerId,
+            type: "inspection_rejected",
+            title: "مرفوض طلب المعاينة",
+            body: `تم رفض طلب المعاينة بسبب: ${body.rejectionReason || 'شروط غير مستوفاة'}`,
+            referenceType: "inspection",
+            referenceId: id,
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on inspection patch:", notifErr);
+    }
+
     // Prepare WhatsApp URL if appointment date or inspector was set/updated
     let whatsappUrl: string | null = null;
     let whatsappMessage: string | null = null;
@@ -306,9 +367,106 @@ router.post("/:id/publish", requireAuth, requireAdmin, async (req, res) => {
     const video360Url = body.video360Url || inspection.video360Url || null;
     const model3dUrl = body.model3dUrl || inspection.model3dUrl || null;
     const livabilityScore = body.livabilityScore ? Number(body.livabilityScore) : inspection.livabilityScore || 95;
-    const lat = body.lat ? Number(body.lat) : inspection.lat;
-    const lng = body.lng ? Number(body.lng) : inspection.lng;
-    const nearbyAmenities = body.nearbyAmenities || null;
+    // 1. Google Maps link resolution and coordinates extraction
+    let lat = body.lat !== undefined ? Number(body.lat) : (inspection.lat !== null ? Number(inspection.lat) : undefined);
+    let lng = body.lng !== undefined ? Number(body.lng) : (inspection.lng !== null ? Number(inspection.lng) : undefined);
+    const mapLink = body.mapLink || body.googleMapsLink || body.locationLink;
+
+    if (mapLink) {
+      const resolved = await resolveAndExtractMapLink(mapLink);
+      if (resolved) {
+        lat = resolved.lat;
+        lng = resolved.lng;
+      } else {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "لم نتمكن من استخراج الإحداثيات من رابط الخريطة المدخل. يرجى توفير رابط Google Maps صالح أو إدخال الإحداثيات مباشرة.",
+        });
+      }
+    }
+
+    // 2. Coordinates Range Validation
+    if (lat !== undefined || lng !== undefined) {
+      if (lat === undefined || lng === undefined) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "يجب تحديد خط العرض وخط الطول معاً لتحديد الموقع.",
+        });
+      }
+
+      if (!isValidCoordinate(lat, lng)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: `الإحداثيات المدخلة غير صالحة (خط العرض: ${lat}، خط الطول: ${lng}). يجب أن يكون خط العرض بين -90 و 90، وخط الطول بين -180 و 180.`,
+        });
+      }
+    }
+
+    // 3. Real OSM Overpass Fetching & Admin Ratings
+    let nearbyAmenities = null;
+
+    // If Admin provided amenities/ratings in request body, validate them strictly
+    let adminProvidedAmenities: any = null;
+    if (body.nearbyAmenities) {
+      const ratingValidation = validateAmenitiesRatings(body.nearbyAmenities);
+      if (!ratingValidation.valid) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: ratingValidation.error || "التقييم المدخل غير صالح. تقييم مكاني يجب أن يكون بين 0 و 5 وبمضاعفات النصف نجمة (0, 0.5, 1, 1.5, ... 5).",
+        });
+      }
+      adminProvidedAmenities = ratingValidation.sanitized;
+
+      // Persist any rated entries into serviceRatings linked by real OSM identity
+      for (const entry of ratingValidation.entriesToPersist) {
+        try {
+          await persistServiceRating(entry, req.dbUser?.id);
+        } catch (persistErr) {
+          req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
+        }
+      }
+    }
+
+    if (lat !== undefined && lng !== undefined) {
+      try {
+        const fetchedAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+        if (adminProvidedAmenities) {
+          // Merge admin provided ratings onto fetched places
+          const categories = ["hospital", "pharmacy", "transportation", "supermarket", "cafeRestaurant", "universityGate"];
+          for (const cat of categories) {
+            if (adminProvidedAmenities[cat]?.rating !== undefined) {
+              if ((fetchedAmenities as any)[cat]) {
+                (fetchedAmenities as any)[cat].rating = adminProvidedAmenities[cat].rating;
+              }
+            }
+            const adminList = adminProvidedAmenities[`${cat}List`];
+            const fetchedList = (fetchedAmenities as any)[`${cat}List`];
+            if (Array.isArray(adminList) && Array.isArray(fetchedList)) {
+              for (const adminItem of adminList) {
+                if (adminItem.rating !== undefined && (adminItem.osmId || adminItem.name)) {
+                  const match = fetchedList.find(
+                    (f: any) =>
+                      (adminItem.osmId && f.osmId === adminItem.osmId) ||
+                      (adminItem.name && f.name === adminItem.name)
+                  );
+                  if (match) {
+                    match.rating = adminItem.rating;
+                  }
+                }
+              }
+            }
+          }
+          nearbyAmenities = fetchedAmenities;
+        } else {
+          nearbyAmenities = fetchedAmenities;
+        }
+      } catch (overpassErr) {
+        console.error("Failed to fetch amenities from Overpass during publish:", overpassErr);
+        nearbyAmenities = adminProvidedAmenities;
+      }
+    } else if (adminProvidedAmenities) {
+      nearbyAmenities = adminProvidedAmenities;
+    }
 
     let apartment: any = null;
 
@@ -422,6 +580,19 @@ router.post("/:id/publish", requireAuth, requireAdmin, async (req, res) => {
       })
       .where(eq(inspections.id, id))
       .returning();
+
+    try {
+      await createNotification({
+        userId: inspection.ownerId,
+        type: "inspection_approved_published",
+        title: "تم اعتماد ونشر عقارك",
+        body: `تهانينا! تم فحص عقارك "${title}" واعتماده ونشره بنجاح للطلاب على منصة مكاني كعقار موثق ومميز.`,
+        referenceType: "property",
+        referenceId: apartment.id.toString(),
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch publish notification to owner:", notifErr);
+    }
 
     // Prepare WhatsApp Message for Owner
     const inspectorName = body.inspectorName || inspection.inspectorName || "فريق فحص مكاني";

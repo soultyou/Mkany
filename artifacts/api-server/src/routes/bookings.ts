@@ -3,6 +3,7 @@ import { db, bookings, apartments, rentPayments, users } from "@workspace/db";
 import { eq, inArray, desc, and, or } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { ensureSeedApartments } from "../lib/seed-apartments";
+import { createNotification } from "../lib/notifications-helper";
 
 const router = Router();
 
@@ -276,6 +277,61 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       with: { property: true, student: true },
     });
 
+    // Send notifications asynchronously in the background
+    try {
+      // 1. Notify Student
+      await createNotification({
+        userId: studentId,
+        type: "booking_submitted",
+        title: "تم استلام طلب الحجز",
+        body: `تم تسجيل طلب حجزك للوحدة السكنية بنجاح برقم حجز ${bookingCode} وهو قيد المراجعة حالياً.`,
+        referenceType: "booking",
+        referenceId: newBooking.id,
+      });
+
+      await createNotification({
+        userId: studentId,
+        type: "subscription_receipt_submitted",
+        title: "تم استلام إيصال الاشتراك",
+        body: "تم استلام إيصال اشتراك مكاني بقيمة 1200 ج.م وجاري التحقق منه.",
+        referenceType: "booking",
+        referenceId: newBooking.id,
+      });
+
+      // 2. Notify Owner if the property has an owner
+      if (property && property.ownerId) {
+        await createNotification({
+          userId: property.ownerId,
+          type: "owner_booking_received",
+          title: "طلب حجز جديد لوحدتك السكنية",
+          body: "لقد تم استلام طلب حجز جديد للوحدة السكنية الخاصة بك وهو قيد المراجعة.",
+          referenceType: "booking",
+          referenceId: newBooking.id,
+        });
+      }
+
+      // 3. Notify Admin
+      await createNotification({
+        userId: "admin",
+        type: "admin_new_booking",
+        title: "لديك طلب حجز جديد يحتاج إلى مراجعة",
+        body: `قام طالب بتقديم طلب حجز جديد برقم الحجز: ${bookingCode}`,
+        referenceType: "booking",
+        referenceId: newBooking.id,
+      });
+
+      await createNotification({
+        userId: "admin",
+        type: "admin_new_subscription",
+        title: "إيصال اشتراك جديد يحتاج إلى المراجعة",
+        body: "تم رفع إيصال اشتراك جديد بقيمة 1200 ج.م للمراجعة.",
+        referenceType: "booking",
+        referenceId: newBooking.id,
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on booking submission:", notifErr);
+    }
+
     res.status(201).json(formatBooking(fullBooking || newBooking));
   } catch (error) {
     req.log.error({ error }, "Failed to create booking");
@@ -360,6 +416,126 @@ router.get("/admin", requireAuth, requireRole(["admin", "super_admin"]), async (
     res.json(adminBookings.map(formatBooking));
   } catch (error) {
     req.log.error({ error }, "Failed to fetch admin bookings");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * GET /api/bookings/admin/properties-reservations
+ * Admin/Super Admin only. Returns all properties aggregated with active booking counts,
+ * occupancy rates, and lists of all associated bookers (bookings + students + rent ledgers).
+ * Does not filter out properties with availablePlaces = 0.
+ */
+router.get("/admin/properties-reservations", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const allProperties = await db.query.apartments.findMany({
+      with: {
+        bookings: {
+          with: {
+            student: true,
+            rentPayments: true,
+          }
+        }
+      },
+      orderBy: [desc(apartments.createdAt)],
+    });
+
+    const aggregated = allProperties.map((property: any) => {
+      const capacity = property.bedrooms || 0;
+      const currentRoommates = property.currentRoommates || 0;
+      const propertyBookings = property.bookings || [];
+
+      // Count confirmed and pending bookings
+      const confirmedBookings = propertyBookings.filter((b: any) => b.status === "confirmed").length;
+      const pendingBookings = propertyBookings.filter((b: any) => b.status === "pending_review").length;
+
+      // Occupied places = currentRoommates + (confirmed and pending_review bookings)
+      const activeBookingsCount = propertyBookings.filter((b: any) => b.status === "confirmed" || b.status === "pending_review").length;
+      const occupiedPlaces = currentRoommates + activeBookingsCount;
+      const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      const isFull = availablePlaces <= 0;
+
+      const formattedBookings = propertyBookings.map((b: any) => {
+        let contractDurationMonths = 0;
+        if (b.contractStartDate && b.contractEndDate) {
+          const start = new Date(b.contractStartDate);
+          const end = new Date(b.contractEndDate);
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            contractDurationMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+          }
+        }
+
+        return {
+          id: b.id,
+          bookingCode: b.bookingCode,
+          status: b.status,
+          adminNotes: b.adminNotes,
+          appointmentDate: b.appointmentDate,
+          appointmentTime: b.appointmentTime,
+          contractStartDate: b.contractStartDate,
+          contractEndDate: b.contractEndDate,
+          contractDurationMonths,
+          depositAmount: b.depositAmount || 0,
+          depositStatus: b.depositStatus || "unpaid",
+          depositPaidAt: b.depositPaidAt,
+          handoverStatus: b.handoverStatus || "not_started",
+          handoverDate: b.handoverDate,
+          
+          // subscription amount/status (1200 EGP subscription completely separate from rent)
+          subscriptionStatus: b.subscriptionStatus || "unpaid",
+          subscriptionAmount: b.subscriptionAmount || 1200,
+          subscriptionReceiptUrl: b.subscriptionReceiptUrl || b.receiptImageUrl,
+          subscriptionApprovedAt: b.subscriptionApprovedAt,
+
+          paymentMethod: b.paymentMethod,
+          paymentAmount: b.paymentAmount,
+          receiptImageUrl: b.receiptImageUrl,
+          senderPhone: b.senderPhone,
+          referenceNumber: b.referenceNumber,
+          createdAt: b.createdAt,
+          updatedAt: b.updatedAt,
+
+          // Operational student data (fully secured, no passwords, keys or Clerk secrets)
+          student: {
+            id: b.student?.id,
+            fullName: b.student?.fullName || "",
+            phoneNumber: b.student?.phoneNumber || b.senderPhone || "",
+            university: b.student?.university || "",
+            email: b.student?.email || "",
+          },
+
+          // Rent ledger information
+          rentPayments: b.rentPayments || []
+        };
+      });
+
+      return {
+        property: {
+          id: property.id,
+          title: property.title,
+          address: property.address,
+          university: property.university,
+          pricePerMonth: property.pricePerMonth,
+          bedrooms: property.bedrooms,
+          status: property.status,
+          verified: property.verified,
+        },
+        occupancy: {
+          capacity,
+          currentRoommates,
+          confirmedBookings,
+          pendingBookings,
+          occupiedPlaces,
+          availablePlaces,
+          isFull,
+        },
+        bookings: formattedBookings,
+      };
+    });
+
+    res.json(aggregated);
+  } catch (error) {
+    req.log.error({ error }, "Failed to fetch admin reserved properties");
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -462,12 +638,9 @@ router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), 
       }
       updateData.status = status;
 
-      // If booking status is approved/confirmed, auto-approve subscription if not rejected/approved
-      if (status === "confirmed" && (!subscriptionStatus || subscriptionStatus === "approved")) {
-        updateData.subscriptionStatus = "approved";
-        updateData.subscriptionApprovedAt = new Date();
-        updateData.subscriptionApprovedBy = req.dbUser!.id;
-      } else if (status === "rejected") {
+      // If booking status is approved/confirmed, do NOT auto-approve subscription.
+      // Subscription remains separate and must be explicitly approved/rejected by Admin.
+      if (status === "rejected") {
         updateData.subscriptionStatus = "rejected";
       }
     }
@@ -571,6 +744,97 @@ router.patch("/:id/status", requireAuth, requireRole(["admin", "super_admin"]), 
       with: { property: true, student: true, rentPayments: true },
     });
 
+    // Send notifications on updates
+    try {
+      const studentId = existing.studentId;
+      const bookingCode = existing.bookingCode;
+
+      // 1. Booking Status Changes
+      if (status && status !== existing.status) {
+        if (status === "confirmed") {
+          await createNotification({
+            userId: studentId,
+            type: "booking_confirmed",
+            title: "تم تأكيد الحجز",
+            body: `تهانينا! تم تأكيد طلب حجزك للوحدة السكنية بنجاح. رقم الحجز: ${bookingCode}`,
+            referenceType: "booking",
+            referenceId: id,
+          });
+
+          const fDate = appointmentDate || existing.appointmentDate;
+          const fTime = appointmentTime || existing.appointmentTime;
+          if (fDate && fTime) {
+            await createNotification({
+              userId: studentId,
+              type: "appointment_confirmed",
+              title: "تم تأكيد موعد المقابلة",
+              body: `تم تحديد موعد المقابلة يوم ${fDate} في الساعة ${fTime}. يرجى الحضور في الموعد المحدد.`,
+              referenceType: "booking",
+              referenceId: id,
+            });
+          }
+        } else if (status === "rejected") {
+          await createNotification({
+            userId: studentId,
+            type: "booking_rejected",
+            title: "تم رفض طلب الحجز",
+            body: `عذراً، تم رفض طلب حجزك للوحدة السكنية برقم: ${bookingCode}.`,
+            referenceType: "booking",
+            referenceId: id,
+          });
+        }
+      }
+
+      // 2. Subscription Status Changes
+      if (subscriptionStatus && subscriptionStatus !== existing.subscriptionStatus) {
+        if (subscriptionStatus === "approved") {
+          await createNotification({
+            userId: studentId,
+            type: "subscription_approved",
+            title: "تم اعتماد اشتراك مكاني وتفعيل Pro ⭐",
+            body: "تم التحقق من إيصال اشتراكك بنجاح، وتفعيل رصيد اشتراك مكاني ومميزات Pro الخاصة بك!",
+            referenceType: "booking",
+            referenceId: id,
+          });
+        } else if (subscriptionStatus === "rejected") {
+          await createNotification({
+            userId: studentId,
+            type: "subscription_rejected",
+            title: "تم رفض إيصال الاشتراك",
+            body: "عذراً، تم رفض إيصال الاشتراك الخاص بك. يرجى التأكد وإعادة رفعه للتفعيل.",
+            referenceType: "booking",
+            referenceId: id,
+          });
+        }
+      }
+
+      // 3. Handover Status Changes
+      if (handoverStatus && handoverStatus !== existing.handoverStatus) {
+        if (handoverStatus === "scheduled") {
+          const hDate = handoverDate || existing.handoverDate || "";
+          await createNotification({
+            userId: studentId,
+            type: "handover_scheduled",
+            title: "تم جدولة موعد الاستلام",
+            body: `تم جدولة موعد استلام الوحدة السكنية الخاصة بك بتاريخ ${hDate}`,
+            referenceType: "booking",
+            referenceId: id,
+          });
+        } else if (handoverStatus === "completed") {
+          await createNotification({
+            userId: studentId,
+            type: "handover_completed",
+            title: "تم استلام السكن بنجاح",
+            body: "لقد تم استلام السكن وتوقيع العقد بنجاح. نتمنى لك إقامة سعيدة!",
+            referenceType: "booking",
+            referenceId: id,
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on booking status update:", notifErr);
+    }
+
     res.json(formatBooking(updated || existing));
   } catch (error) {
     req.log.error({ error }, "Failed to update booking status");
@@ -638,7 +902,7 @@ router.get("/:bookingId/rent-payments", requireAuth, async (req: Request, res: R
 router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"]), async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const { contractStartDate, contractEndDate, depositAmount, depositStatus, handoverStatus, handoverDate } = req.body;
+    const { contractStartDate, contractEndDate, depositAmount, depositStatus, handoverStatus, handoverDate, subscriptionStatus } = req.body;
 
     const booking = await db.query.bookings.findFirst({
       where: eq(bookings.id, id),
@@ -678,8 +942,38 @@ router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"])
       updateData.handoverDate = handoverDate;
     }
 
+    if (typeof subscriptionStatus === "string") {
+      if (["unpaid", "pending_review", "approved", "rejected"].includes(subscriptionStatus)) {
+        updateData.subscriptionStatus = subscriptionStatus;
+        if (subscriptionStatus === "approved") {
+          updateData.subscriptionApprovedAt = new Date();
+          updateData.subscriptionApprovedBy = req.dbUser!.id;
+        }
+      }
+    }
+
     // Update the booking record
     await db.update(bookings).set(updateData).where(eq(bookings.id, id));
+
+    // Synchronize Student's user-level subscriptionStatus (Pro activation)
+    const finalSubscriptionStatus = subscriptionStatus || booking.subscriptionStatus;
+    if (finalSubscriptionStatus === "approved") {
+      await db.update(users)
+        .set({
+          subscriptionStatus: "approved",
+          subscriptionApprovedAt: new Date(),
+          subscriptionApprovedBy: req.dbUser!.id,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, booking.studentId));
+    } else {
+      await db.update(users)
+        .set({
+          subscriptionStatus: finalSubscriptionStatus === "rejected" ? "rejected" : "unpaid",
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, booking.studentId));
+    }
 
     // Generate monthly rent schedule if start/end dates are provided or updated
     const finalStart = contractStartDate || booking.contractStartDate;
@@ -812,9 +1106,116 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
       where: eq(rentPayments.id, paymentId),
     });
 
+    try {
+      const studentId = booking.studentId;
+      await createNotification({
+        userId: studentId,
+        type: "rent_receipt_submitted",
+        title: "تم استلام إيصال الإيجار",
+        body: `تم استلام إيصال الإيجار بنجاح لشهر ${updatedPayment?.billingPeriod || ''} وجاري التحقق منه من الإدارة.`,
+        referenceType: "booking",
+        referenceId: bookingId,
+      });
+
+      await createNotification({
+        userId: "admin",
+        type: "admin_rent_receipt_review",
+        title: "إيصال إيجار جديد يحتاج للمراجعة",
+        body: `قام الطالب برفع إيصال دفع إيجار لشهر ${updatedPayment?.billingPeriod || ''} للوحدة السكنية للمراجعة.`,
+        referenceType: "booking",
+        referenceId: bookingId,
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on rent payment upload:", notifErr);
+    }
+
     res.json(mapOverdueStatus(updatedPayment));
   } catch (error) {
     req.log.error({ error }, "Failed to upload rent receipt");
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * POST /api/bookings/:bookingId/subscription/upload
+ * Student uploads/re-uploads their 1200 EGP subscription receipt.
+ */
+router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["student"]), async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const { receiptImageUrl } = req.body;
+    const userId = (req as any).user?.id;
+
+    if (!receiptImageUrl) {
+      res.status(400).json({ error: "Bad Request", message: "يرجى إرفاق صورة الإيصال" });
+      return;
+    }
+
+    const booking = await db.query.bookings.findFirst({
+      where: eq(bookings.id, bookingId),
+    });
+
+    if (!booking) {
+      res.status(404).json({ error: "Not Found", message: "Booking not found" });
+      return;
+    }
+
+    // IDOR checking
+    if (booking.studentId !== userId) {
+      res.status(403).json({ error: "Forbidden", message: "غير مصرح لك برفع إيصال لهذا الحجز" });
+      return;
+    }
+
+    // Update booking subscription status to pending_review
+    await db.update(bookings)
+      .set({
+        subscriptionStatus: "pending_review",
+        subscriptionAmount: 1200,
+        subscriptionReceiptUrl: receiptImageUrl,
+        updatedAt: new Date(),
+      })
+      .where(eq(bookings.id, bookingId));
+
+    // Also sync to user record
+    await db.update(users)
+      .set({
+        subscriptionStatus: "pending_review",
+        subscriptionAmount: 1200,
+        subscriptionReceiptUrl: receiptImageUrl,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    try {
+      await createNotification({
+        userId,
+        type: "subscription_receipt_submitted",
+        title: "تم استلام إيصال الاشتراك",
+        body: "تم استلام إيصال إعادة رفع اشتراك مكاني بقيمة 1200 ج.م وجاري التحقق منه.",
+        referenceType: "booking",
+        referenceId: bookingId,
+      });
+
+      await createNotification({
+        userId: "admin",
+        type: "admin_new_subscription",
+        title: "إيصال اشتراك جديد يحتاج إلى المراجعة",
+        body: "تم إعادة رفع إيصال اشتراك جديد بقيمة 1200 ج.م للمراجعة والاعتماد.",
+        referenceType: "booking",
+        referenceId: bookingId,
+      });
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on subscription re-upload:", notifErr);
+    }
+
+    const updated = await db.query.bookings.findFirst({
+      where: eq(bookings.id, bookingId),
+      with: { property: true, student: true, rentPayments: true },
+    });
+
+    res.json(formatBooking(updated!));
+  } catch (error) {
+    req.log.error({ error }, "Failed to upload subscription receipt");
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -854,6 +1255,24 @@ router.post("/:bookingId/rent-payments/:paymentId/approve", requireAuth, require
       where: eq(rentPayments.id, paymentId),
     });
 
+    try {
+      const booking = await db.query.bookings.findFirst({
+        where: eq(bookings.id, bookingId),
+      });
+      if (booking) {
+        await createNotification({
+          userId: booking.studentId,
+          type: "rent_payment_approved",
+          title: "تم اعتماد إيصال الإيجار",
+          body: `تم التحقق من إيصال دفع الإيجار الخاص بك واعتماده بنجاح لشهر ${updatedPayment?.billingPeriod || ''}.`,
+          referenceType: "booking",
+          referenceId: bookingId,
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on rent payment approval:", notifErr);
+    }
+
     res.json(mapOverdueStatus(updatedPayment));
   } catch (error) {
     req.log.error({ error }, "Failed to approve rent payment");
@@ -891,6 +1310,24 @@ router.post("/:bookingId/rent-payments/:paymentId/reject", requireAuth, requireR
     const updatedPayment = await db.query.rentPayments.findFirst({
       where: eq(rentPayments.id, paymentId),
     });
+
+    try {
+      const booking = await db.query.bookings.findFirst({
+        where: eq(bookings.id, bookingId),
+      });
+      if (booking) {
+        await createNotification({
+          userId: booking.studentId,
+          type: "rent_payment_rejected",
+          title: "تم رفض إيصال الإيجار",
+          body: `عذراً، تم رفض إيصال دفع الإيجار الخاص بك لشهر ${updatedPayment?.billingPeriod || ''}. يرجى مراجعة التفاصيل وإعادة الرفع.`,
+          referenceType: "booking",
+          referenceId: bookingId,
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on rent payment rejection:", notifErr);
+    }
 
     res.json(mapOverdueStatus(updatedPayment));
   } catch (error) {

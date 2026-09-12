@@ -251,3 +251,38 @@ export async function deleteAdminAdminApi(id: string) {
     method: "DELETE",
   });
 }
+
+// ==========================================
+// Service Ratings (Mkany Admin Source of Truth)
+// ==========================================
+
+export async function getServiceRatingsApi(params?: { osmType?: string; osmId?: string; category?: string }) {
+  const q = new URLSearchParams();
+  if (params?.osmType) q.set("osmType", params.osmType);
+  if (params?.osmId) q.set("osmId", params.osmId);
+  if (params?.category) q.set("category", params.category);
+  const queryStr = q.toString();
+  return apiFetch(`/api/geo/ratings${queryStr ? `?${queryStr}` : ""}`, { method: "GET" });
+}
+
+export async function setServiceRatingApi(data: {
+  osmType: string;
+  osmId: string;
+  rating: number | null | string;
+  category?: string;
+  placeName?: string;
+  notes?: string;
+}) {
+  return apiFetch("/api/geo/ratings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteServiceRatingApi(osmType: string, osmId: string) {
+  return apiFetch(`/api/geo/ratings?osmType=${encodeURIComponent(osmType)}&osmId=${encodeURIComponent(osmId)}`, {
+    method: "DELETE",
+  });
+}
+

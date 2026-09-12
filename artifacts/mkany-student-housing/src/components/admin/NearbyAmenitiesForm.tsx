@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Building2,
   Pill,
@@ -10,6 +10,11 @@ import {
   MapPin,
   Clock,
   Star,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+  RotateCcw,
 } from "lucide-react";
 import { NearbyAmenities, AmenityDetail } from "@/lib/inspections-store";
 import {
@@ -19,6 +24,7 @@ import {
   getDerivedAmenityCoords,
   getCityDefaultCoordinates,
 } from "@/lib/geo-utils";
+import { setServiceRatingApi } from "@/lib/api-client";
 
 interface NearbyAmenitiesFormProps {
   amenities: NearbyAmenities;
@@ -29,6 +35,147 @@ interface NearbyAmenitiesFormProps {
   propertyLng?: number;
 }
 
+const RATING_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "لم يتم التقييم بعد (غير مقيّم)" },
+  { value: "0.5", label: "0.5 ★" },
+  { value: "1.0", label: "1.0 ★" },
+  { value: "1.5", label: "1.5 ★" },
+  { value: "2.0", label: "2.0 ★" },
+  { value: "2.5", label: "2.5 ★" },
+  { value: "3.0", label: "3.0 ★" },
+  { value: "3.5", label: "3.5 ★" },
+  { value: "4.0", label: "4.0 ★" },
+  { value: "4.5", label: "4.5 ★" },
+  { value: "5.0", label: "5.0 ★" },
+];
+
+/**
+ * مكون منضبط لإدخال وتعديل تقييم مكاني للخدمات
+ * المصدر المعتمد: مشرف إدارة مكاني فقط (0 إلى 5 بمعدل 0.5)
+ * يُمنع اشتقاق التقييم من المسافة أو وسوم OSM أو القيم العشوائية
+ */
+function MkanyRatingPicker({
+  value,
+  onChange,
+  osmType,
+  osmId,
+  placeName,
+  category,
+}: {
+  value: string | undefined | null;
+  onChange: (val: string | undefined) => void;
+  osmType?: string;
+  osmId?: string | number;
+  placeName?: string;
+  category?: string;
+}) {
+  const [isSavingDirectly, setIsSavingDirectly] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const normalizedValue =
+    value !== undefined && value !== null && value !== "" && value !== "0" && value !== "0.0"
+      ? Number(value).toFixed(1).replace(".0", "") === Number(value).toString() && !Number(value).toString().includes(".")
+        ? `${Number(value).toFixed(1)}`
+        : Number(value).toFixed(1)
+      : "";
+
+  const handleDirectSync = async () => {
+    if (!osmType || !osmId) return;
+    setIsSavingDirectly(true);
+    setSaveSuccess(false);
+    try {
+      await setServiceRatingApi({
+        osmType,
+        osmId: String(osmId),
+        rating: normalizedValue ? Number(normalizedValue) : null,
+        placeName: placeName || "",
+        category: category || "",
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    } catch (err) {
+      console.error("Failed to sync service rating:", err);
+    } finally {
+      setIsSavingDirectly(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5" data-testid="mkany-rating-picker">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <label className="flex items-center gap-1 text-[11px] font-bold text-foreground">
+          <Star size={13} className="text-amber-500 fill-amber-500" />
+          <span>تقييم مكاني المعتمد:</span>
+        </label>
+        {normalizedValue ? (
+          <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+            ★ {normalizedValue} / 5
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            لم يتم تقييمه بعد
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <select
+          value={normalizedValue}
+          onChange={(e) => {
+            const nextVal = e.target.value;
+            onChange(nextVal === "" ? undefined : nextVal);
+          }}
+          className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-bold text-foreground outline-none focus:border-amber-500"
+          aria-label="تحديد تقييم مكاني"
+        >
+          {RATING_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+
+        {normalizedValue && (
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 text-[10px]"
+            title="مسح التقييم والعودة لغير مقيّم"
+          >
+            <RotateCcw size={13} />
+          </button>
+        )}
+
+        {osmType && osmId && (
+          <button
+            type="button"
+            onClick={handleDirectSync}
+            disabled={isSavingDirectly}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
+              saveSuccess
+                ? "bg-emerald-600 text-white"
+                : "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+            }`}
+            title="حفظ التقييم فوراً في قاعدة بيانات خدمات مكاني المرتبطة بـ OpenStreetMap"
+          >
+            {saveSuccess ? (
+              <>
+                <Check size={12} />
+                محفوظ ✓
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={12} />
+                حفظ للنظام
+              </>
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function NearbyAmenitiesForm({
   amenities,
   onChange,
@@ -37,10 +184,12 @@ export function NearbyAmenitiesForm({
   propertyLat,
   propertyLng,
 }: NearbyAmenitiesFormProps) {
+  const [expandedListCategory, setExpandedListCategory] = useState<string | null>(null);
+
   const updateAmenity = (
     key: keyof NearbyAmenities,
     field: keyof AmenityDetail,
-    value: string
+    value: any
   ) => {
     onChange({
       ...amenities,
@@ -51,8 +200,27 @@ export function NearbyAmenitiesForm({
     });
   };
 
+  const updateListItemRating = (
+    listKey: keyof NearbyAmenities,
+    itemIndex: number,
+    newRating: string | undefined
+  ) => {
+    const list = ((amenities[listKey] as AmenityDetail[]) || []).slice();
+    if (list[itemIndex]) {
+      list[itemIndex] = {
+        ...list[itemIndex],
+        rating: newRating,
+      };
+      onChange({
+        ...amenities,
+        [listKey]: list,
+      });
+    }
+  };
+
   const amenityConfig: Array<{
     key: keyof NearbyAmenities;
+    listKey: keyof NearbyAmenities;
     label: string;
     icon: React.ReactNode;
     color: string;
@@ -64,6 +232,7 @@ export function NearbyAmenitiesForm({
   }> = [
     {
       key: "universityGate",
+      listKey: "universityGateList",
       label: "بوابة الجامعة",
       icon: <GraduationCap size={18} />,
       color: "text-purple-600",
@@ -75,6 +244,7 @@ export function NearbyAmenitiesForm({
     },
     {
       key: "transportation",
+      listKey: "transportationList",
       label: "محطة مواصلات / موقف سرفيس",
       icon: <Bus size={18} />,
       color: "text-sky-600",
@@ -86,6 +256,7 @@ export function NearbyAmenitiesForm({
     },
     {
       key: "hospital",
+      listKey: "hospitalList",
       label: "أقرب مستشفى أو مركز طبي",
       icon: <Building2 size={18} />,
       color: "text-rose-600",
@@ -97,6 +268,7 @@ export function NearbyAmenitiesForm({
     },
     {
       key: "pharmacy",
+      listKey: "pharmacyList",
       label: "صيدلية (خدمة طلابية ٢٤ ساعة)",
       icon: <Pill size={18} />,
       color: "text-emerald-600",
@@ -108,6 +280,7 @@ export function NearbyAmenitiesForm({
     },
     {
       key: "supermarket",
+      listKey: "supermarketList",
       label: "سوبرماركت / هايبر ماركت",
       icon: <ShoppingCart size={18} />,
       color: "text-amber-600",
@@ -119,6 +292,7 @@ export function NearbyAmenitiesForm({
     },
     {
       key: "cafeRestaurant",
+      listKey: "cafeRestaurantList",
       label: "كافيه ومطعم ومساحة مذاكرة",
       icon: <Coffee size={18} />,
       color: "text-orange-600",
@@ -139,11 +313,11 @@ export function NearbyAmenitiesForm({
               <MapPin size={16} />
             </span>
             <h4 className="text-sm font-black text-foreground">
-              كل ما تحتاجه حولك (إدارة تفاصيل المنطقة المحيطة)
+              إدارة المنطقة المحيطة وتقييمات مكاني المعتمدة (Mkany Ratings)
             </h4>
           </div>
           <p className="mt-1 text-xs text-muted-foreground leading-5">
-            حدد المسافات وأوقات السير بالدقيقة لكل خدمة أساسية. تنعكس التعديلات فوراً في كارت وتفاصيل العقار المعروضة للطلاب.
+            بيانات الأماكن (الاسم والإحداثيات والمسافة) مصدرها الفعلي OpenStreetMap. تقييمات الخدمات (Mkany Rating) مصدرها الحصري مشرف إدارة مكاني ولا يتم توليدها عشوائياً.
           </p>
         </div>
 
@@ -167,8 +341,9 @@ export function NearbyAmenitiesForm({
               const updated: any = { ...amenities };
 
               keys.forEach((k) => {
-                const targetCoord = amenities[k]?.lat && amenities[k]?.lng
-                  ? { lat: amenities[k].lat!, lng: amenities[k].lng! }
+                const itemDetail = amenities[k] as AmenityDetail | undefined;
+                const targetCoord = itemDetail?.lat && itemDetail?.lng
+                  ? { lat: itemDetail.lat, lng: itemDetail.lng }
                   : getDerivedAmenityCoords(baseCoords.lat, baseCoords.lng, k);
 
                 const meters = calcHaversineDistanceMeters(
@@ -184,6 +359,7 @@ export function NearbyAmenitiesForm({
                   lng: targetCoord.lng,
                   distance: formatDistanceArabic(meters),
                   time: formatWalkingTimeArabic(meters),
+                  // Never overwrite explicit admin ratings
                 };
               });
 
@@ -194,7 +370,7 @@ export function NearbyAmenitiesForm({
             data-testid="btn-recalculate-osm-distances"
           >
             <MapPin size={13} className="text-emerald-600" />
-            حساب المسافات تلقائياً (OpenStreetMap)
+            حساب المسافات (OpenStreetMap)
           </button>
 
           <button
@@ -202,32 +378,47 @@ export function NearbyAmenitiesForm({
             onClick={() => {
               const cityName = city || "كفر الشيخ";
               const uniName = university || "جامعة كفر الشيخ";
+              // Note: default to unrated (no fake ratings!)
               onChange({
-                universityGate: { distance: "٨٠٠م", time: "١٠ دقائق مشياً", name: `بوابة ${uniName} الرئيسية`, rating: "4.8" },
-                transportation: { distance: "٢٠٠م", time: "٣ دقائق مشياً", name: "محطة سرفيس وموقف الكليات", rating: "4.5" },
-                hospital: { distance: "٥٠٠م", time: "٨ دقائق مشياً", name: `مستشفى ${cityName} الجامعي التخصصي`, rating: "4.6" },
-                pharmacy: { distance: "١٥٠م", time: "دقيقتان", name: "صيدلية ٢٤ ساعة خدمة وتوصيل", rating: "5.0" },
-                supermarket: { distance: "٣٠٠م", time: "٥ دقائق مشياً", name: "سوبرماركت وهايبر غذائي متكامل", rating: "4.4" },
-                cafeRestaurant: { distance: "١٠٠م", time: "دقيقة واحدة", name: "كافيه ومساحة مذاكرة هادئة", rating: "4.7" },
+                ...amenities,
+                universityGate: { distance: "٨٠٠م", time: "١٠ دقائق مشياً", name: `بوابة ${uniName} الرئيسية`, rating: amenities.universityGate?.rating },
+                transportation: { distance: "٢٠٠م", time: "٣ دقائق مشياً", name: "محطة سرفيس وموقف الكليات", rating: amenities.transportation?.rating },
+                hospital: { distance: "٥٠٠م", time: "٨ دقائق مشياً", name: `مستشفى ${cityName} الجامعي التخصصي`, rating: amenities.hospital?.rating },
+                pharmacy: { distance: "١٥٠م", time: "دقيقتان", name: "صيدلية ٢٤ ساعة خدمة وتوصيل", rating: amenities.pharmacy?.rating },
+                supermarket: { distance: "٣٠٠م", time: "٥ دقائق مشياً", name: "سوبرماركت وهايبر غذائي متكامل", rating: amenities.supermarket?.rating },
+                cafeRestaurant: { distance: "١٠٠م", time: "دقيقة واحدة", name: "كافيه ومساحة مذاكرة هادئة", rating: amenities.cafeRestaurant?.rating },
               });
             }}
             className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-primary/30 bg-primary/5 px-3 py-1.5 text-[11px] font-bold text-primary hover:bg-primary/10 transition-colors"
-            title="تعبئة بيانات استرشادية ذكية بحسب المدينة"
+            title="تعبئة بيانات مسافات استرشادية دون المساس بالتقييمات"
           >
             <Sparkles size={13} />
-            قيم افتراضية
+            قيم استرشادية للمسافات
           </button>
         </div>
       </div>
 
+      {/* تنبيه شفاف عن معايير التقييم */}
+      <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-800 dark:text-amber-200">
+        <ShieldCheck size={16} className="shrink-0 text-amber-600 dark:text-amber-400" />
+        <span>
+          <strong>معيار تقييمات مكاني:</strong> يتم تحديد التقييم حصراً بواسطة المشرف الإداري من 0.5 إلى 5.0 (بمضاعفات 0.5) أو تركه غير مقيّم. لا يتم اشتقاق أي تقييم من وسوم OpenStreetMap أو بُعد المسافة.
+        </span>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
         {amenityConfig.map((item) => {
-          const current = amenities[item.key] || {
+          const current = (amenities[item.key] as AmenityDetail) || {
             distance: "",
             time: "",
             name: "",
-            rating: "4.5",
+            rating: undefined,
           };
+
+          const listItems = ((amenities[item.listKey] as AmenityDetail[]) || []).filter(
+            (it) => it && it.name && !it.name.startsWith("لا توجد")
+          );
+          const isExpanded = expandedListCategory === item.key;
 
           return (
             <div
@@ -244,20 +435,31 @@ export function NearbyAmenitiesForm({
                     {item.label}
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Star size={12} className="text-amber-500 fill-amber-500" />
-                  <input
-                    type="text"
-                    value={current.rating || "4.5"}
-                    onChange={(e) => updateAmenity(item.key, "rating", e.target.value)}
-                    placeholder="4.5"
-                    className="w-10 rounded border border-border/80 bg-background px-1 py-0.5 text-center text-[10px] font-bold text-foreground outline-none"
-                    title="التقييم من 5"
-                  />
-                </div>
+
+                {current.osmId && (
+                  <span
+                    className="text-[10px] font-mono text-muted-foreground bg-background/80 px-1.5 py-0.5 rounded border border-border"
+                    title={`معرف OpenStreetMap: ${current.osmType || "node"}/${current.osmId}`}
+                  >
+                    OSM #{current.osmId}
+                  </span>
+                )}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2.5">
+                {/* تقييم مكاني المعتمد لهذا المكان/التصنيف */}
+                <div className="rounded-lg bg-background/90 p-2.5 border border-border/80 shadow-xs">
+                  <MkanyRatingPicker
+                    value={current.rating}
+                    onChange={(newVal) => updateAmenity(item.key, "rating", newVal)}
+                    osmType={current.osmType}
+                    osmId={current.osmId}
+                    placeName={current.name}
+                    category={item.label}
+                  />
+                </div>
+
+                {/* تفاصيل المسافة والوقت والاسم */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="mb-1 flex items-center gap-1 text-[10px] font-bold text-foreground">
@@ -292,7 +494,7 @@ export function NearbyAmenitiesForm({
 
                 <div>
                   <label className="mb-1 block text-[10px] font-bold text-muted-foreground">
-                    اسم المكان أو الخدمة التوضيحي (اختياري):
+                    اسم المكان أو الخدمة من واقع الخريطة:
                   </label>
                   <input
                     type="text"
@@ -302,6 +504,60 @@ export function NearbyAmenitiesForm({
                     className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary"
                   />
                 </div>
+
+                {/* قائمة الأماكن الفردية المكتشفة عبر OpenStreetMap في هذا التصنيف */}
+                {listItems.length > 0 && (
+                  <div className="pt-1 border-t border-border/60">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedListCategory(isExpanded ? null : item.key)}
+                      className="flex items-center justify-between w-full text-[11px] font-bold text-primary hover:underline py-1"
+                    >
+                      <span className="flex items-center gap-1">
+                        <span>أماكن أخرى مكتشفة عبر الخريطة ({listItems.length})</span>
+                      </span>
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-2 space-y-2 max-h-56 overflow-y-auto pr-1">
+                        {listItems.map((subItem, sIdx) => (
+                          <div
+                            key={subItem.osmId ? `osm-${subItem.osmId}` : `sub-${sIdx}`}
+                            className="rounded-lg border border-border bg-background p-2 text-xs space-y-1.5"
+                          >
+                            <div className="flex items-start justify-between gap-1">
+                              <div>
+                                <span className="font-bold text-foreground block">
+                                  {subItem.name || `مكان #${sIdx + 1}`}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {subItem.distance} • {subItem.time}
+                                </span>
+                              </div>
+                              {subItem.osmId && (
+                                <span className="text-[9px] font-mono text-muted-foreground bg-muted px-1 rounded">
+                                  OSM #{subItem.osmId}
+                                </span>
+                              )}
+                            </div>
+
+                            <MkanyRatingPicker
+                              value={subItem.rating}
+                              onChange={(newRating) =>
+                                updateListItemRating(item.listKey, sIdx, newRating)
+                              }
+                              osmType={subItem.osmType}
+                              osmId={subItem.osmId}
+                              placeName={subItem.name}
+                              category={item.label}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );

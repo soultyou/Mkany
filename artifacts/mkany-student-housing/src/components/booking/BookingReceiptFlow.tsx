@@ -219,29 +219,58 @@ export function BookingReceiptFlow({
         {/* الخطوة 1: مراجعة تفاصيل الحجز وهوية الطالب */}
         {step === 1 && (
           <div>
-            <div className="mb-6 flex items-start gap-4 rounded-2xl border border-border bg-muted/30 p-4">
-              <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl border border-border">
-                <img
-                  src={property.images[0]}
-                  alt={property.title}
-                  className="h-full w-full object-cover"
-                />
+            {/* REQUIRED PRIMARY DISPLAY */}
+            <div className="mb-6 rounded-2xl border-2 border-primary bg-primary/5 p-5 text-center relative overflow-hidden">
+              <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-primary via-primary-hover to-primary" />
+              <span className="text-[10px] bg-primary text-primary-foreground font-black px-3 py-1 rounded-full uppercase tracking-wider mb-2 inline-block">
+                المطلوب للدفع الآن
+              </span>
+              <div className="text-3xl font-black text-foreground tracking-tight mb-1">
+                1,200 جنيه فقط
               </div>
-              <div className="min-w-0 flex-1">
-                <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                  {property.university}
+              <p className="text-xs font-bold text-primary">
+                اشتراك مكاني — يُدفع مرة واحدة
+              </p>
+            </div>
+
+            {/* IMPORTANT EXPLANATION */}
+            <div className="mb-6 bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-4 rounded-xl text-xs space-y-1.5 text-right font-medium leading-relaxed">
+              <p className="font-bold text-foreground">⚠️ توضيح هام ومؤكد:</p>
+              <p>"1200 جنيه هي رسوم اشتراك مكاني فقط، وليست إيجارًا شهريًا أو تأمينًا."</p>
+              <p>"لن تدفع الإيجار أو التأمين الآن. يتم تحديد واستحقاق هذه المبالغ بعد اعتماد السكن واستلام الوحدة وفقًا للعقد."</p>
+            </div>
+
+            {/* SEPARATE DETAILS */}
+            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-card p-4 space-y-1 text-right">
+                <span className="text-[10px] text-muted-foreground block font-bold">الإيجار الشهري للوحدة (للمالك):</span>
+                <strong className="text-sm font-extrabold text-foreground">{property.pricePerMonth} جنيه / شهر</strong>
+                <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-bold block w-fit mt-1">
+                  يُدفع لاحقًا بعد استلام الوحدة
                 </span>
-                <h3 className="text-base font-bold text-foreground mt-1 line-clamp-1">{property.title}</h3>
-                <p className="text-xs text-muted-foreground">{property.address}</p>
-                <div className="mt-2 space-y-1.5 border-t border-border/40 pt-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground font-bold">اشتراك مكاني المطلوب:</span>
-                    <strong className="text-sm font-extrabold text-primary">1200 جنيه (مرة واحدة)</strong>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">الإيجار الشهري للوحدة (للمالك):</span>
-                    <strong className="text-xs font-bold text-foreground">{property.pricePerMonth} جنيه / شهر</strong>
-                  </div>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4 space-y-1 text-right">
+                <span className="text-[10px] text-muted-foreground block font-bold">التأمين (الوديعة):</span>
+                <strong className="text-xs font-bold text-foreground">مسترد بالكامل عند الإخلاء</strong>
+                <p className="text-[10px] text-muted-foreground leading-relaxed mt-1">
+                  يتم تحديد قيمة التأمين وتسجيلها من الإدارة بعد المعاينة واعتماد السكن، وتصبح مستحقة وفق مرحلة الاستلام.
+                </p>
+              </div>
+            </div>
+
+            {/* FINANCIAL SUMMARY TABLE */}
+            <div className="mb-6 rounded-2xl border border-border bg-muted/20 p-4 space-y-2 text-xs text-right">
+              <h4 className="font-black text-foreground border-b border-border pb-1.5 mb-2">📊 الملخص المالي والالتزامات:</h4>
+              <div className="flex items-center justify-between font-bold text-primary">
+                <span>المطلوب الآن:</span>
+                <span>1,200 جنيه (اشتراك مكاني فقط)</span>
+              </div>
+              <div className="h-px bg-border/60 my-1" />
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>لاحقًا بعد استلام الوحدة:</span>
+                <div className="space-y-0.5 text-left">
+                  <div className="font-bold text-foreground">الإيجار الشهري: {property.pricePerMonth} جنيه / شهر</div>
+                  <div>التأمين: يحدده فريق مكاني بعد المعاينة</div>
                 </div>
               </div>
             </div>
@@ -299,10 +328,91 @@ export function BookingReceiptFlow({
               </div>
             </div>
 
+            {/* ماذا يشمل اشتراك مكاني؟ */}
+            <div className="mb-6 rounded-2xl border border-border bg-card p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <h4 className="text-sm font-extrabold text-foreground">
+                  ⭐ ماذا يشمل اشتراك مكاني؟
+                </h4>
+                <span className="text-[10px] bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-black">
+                  مزايا المشتركين
+                </span>
+              </div>
+
+              <p className="text-xs text-foreground font-medium leading-relaxed">
+                "اشتراكك في مكاني مش مجرد حجز سكن، لكنه بوابتك لخدمات ومزايا مكاني."
+              </p>
+
+              {/* المزايا المشمولة */}
+              <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>معاينة واختيار السكن عبر مكاني</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>مراجعة واعتماد بيانات السكن</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>متابعة إجراءات الحجز</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>تنظيم ومتابعة مواعيد المعاينة والاستلام</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>دعم ومتابعة من مكاني</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>عضوية Pro بعد اعتماد الاشتراك</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>خصومات وعروض خاصة للمشتركين</span>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-primary font-bold">✓</span>
+                    <span>الوصول إلى مساحات العمل (Workspace/Coworking) والمزايا المتاحة للمشتركين</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 bg-muted/40 p-2.5 rounded-xl text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="font-bold text-foreground block mb-0.5">من مزايا الاشتراك والخدمات المتاحة عبر مكاني:</span>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    <li>طلب خدمات النظافة المتاحة</li>
+                    <li>طلب خدمات الصيانة المتاحة</li>
+                    <li>طلب خدمات الطعام المتاحة</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* ما لا يشمله الاشتراك */}
+              <div className="pt-3 border-t border-border/60">
+                <span className="text-[10px] font-bold text-rose-600 block mb-1.5">الاشتراك لا يشمل:</span>
+                <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                  <div className="bg-muted/30 p-2 rounded-lg text-center font-bold">الإيجار الشهري</div>
+                  <div className="bg-muted/30 p-2 rounded-lg text-center font-bold">التأمين</div>
+                  <div className="bg-muted/30 p-2 rounded-lg text-center font-bold">أي رسوم أو خدمات إضافية غير مشمولة</div>
+                </div>
+                <p className="mt-2 text-[10px] text-rose-600 leading-relaxed font-bold">
+                  ⚠️ 1200 جنيه هي رسوم اشتراك مكاني فقط، وليست إيجارًا شهريًا أو تأمينًا.
+                </p>
+              </div>
+
+              {/* سياسة الاسترداد */}
+              <div className="pt-3 border-t border-border/60 text-[11px] text-muted-foreground leading-relaxed">
+                <span className="font-bold text-foreground block mb-0.5">🔄 سياسة الاسترداد:</span>
+                "في حال عدم مناسبة الوحدة بعد المعاينة، يتم التعامل مع طلب الاسترداد وفق سياسة الاسترداد المعتمدة من مكاني."
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3.5 text-[11px] leading-5 text-muted-foreground mb-6">
               <strong className="text-primary font-bold block mb-0.5">ضمان مكاني لحماية السكن:</strong>
-              يتم سداد الحجز أو تأمين الوحدة عبر التحويل اليدوي ورفع الإيصال، ويتم توجيهك فوراً لرقم إدارة مكاني الرسمي 
-              (<span className="font-mono font-bold text-primary">{adminWhatsAppNumber}</span>) لاعتماد الحجز وتوقيع العقد.
+              يتم سداد اشتراك مكاني للخدمات وتوثيق العقد عبر التحويل اليدوي ورفع الإيصال، ويتم تفعيل حسابك Pro فور اعتماد التحويل من الإدارة.
             </div>
 
             <div className="flex items-center justify-end gap-3">
@@ -319,7 +429,7 @@ export function BookingReceiptFlow({
                 className="flex items-center gap-1.5 rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-foreground shadow transition-transform hover:-translate-y-0.5"
                 data-testid="btn-proceed-to-receipt"
               >
-                المتابعة للدفع اليدوي ورفع الإيصال
+                دفع اشتراك مكاني — 1,200 جنيه
                 <ArrowLeft size={15} />
               </button>
             </div>

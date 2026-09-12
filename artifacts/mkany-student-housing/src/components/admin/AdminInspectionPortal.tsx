@@ -17,6 +17,7 @@ import {
   Filter, 
   Search, 
   Send,
+  RefreshCw,
   Video,
   Layers,
   ArrowRight,
@@ -116,8 +117,37 @@ export function AdminInspectionPortal({
 }: AdminInspectionPortalProps) {
   const { user } = useAuth();
   const [mainTab, setMainTab] = useState<
-    "overview" | "approvals" | "properties" | "verification" | "users" | "bookings" | "inspections" | "support"
+    "overview" | "approvals" | "properties" | "verification" | "users" | "bookings" | "inspections" | "support" | "reserved_properties" | "analytics"
   >("overview");
+
+  // Reserved Properties Aggregation States
+  const [reservedProperties, setReservedProperties] = useState<any[]>([]);
+  const [isLoadingReserved, setIsLoadingReserved] = useState<boolean>(false);
+  const [selectedReservedProperty, setSelectedReservedProperty] = useState<any | null>(null);
+
+  const fetchReservedProperties = async () => {
+    setIsLoadingReserved(true);
+    try {
+      const res = await fetch("/api/bookings/admin/properties-reservations");
+      if (res.ok) {
+        const data = await res.json();
+        setReservedProperties(data);
+      } else {
+        openToast("فشل تحميل الشقق المحجوزة من الخادم");
+      }
+    } catch (err) {
+      console.error(err);
+      openToast("خطأ أثناء الاتصال بالخادم لتحميل الشقق المحجوزة");
+    } finally {
+      setIsLoadingReserved(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mainTab === "reserved_properties") {
+      fetchReservedProperties();
+    }
+  }, [mainTab]);
 
   // بيانات ودعم منصة مكاني (Admin Support Management)
   const [supportConversations, setSupportConversations] = useState<SupportConversationItem[]>([]);
@@ -172,6 +202,46 @@ export function AdminInspectionPortal({
   const approvedProperties = properties.filter((p) => p.status === "متاح").length;
   const rejectedProperties = properties.filter((p) => p.status === "مرفوض").length;
   const occupiedProperties = properties.filter((p) => p.status === "مشغول").length;
+
+  // --- Financial Analytics and Accounting States ---
+  const [financialAnalytics, setFinancialAnalytics] = useState<any>(null);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
+  const [selectedAnalyticsYear, setSelectedAnalyticsYear] = useState<string>("all");
+  const [selectedAnalyticsMonth, setSelectedAnalyticsMonth] = useState<string>("all");
+
+  const fetchFinancialAnalytics = async (year: string, month: string) => {
+    setIsLoadingAnalytics(true);
+    try {
+      let url = "/api/admin/financial/summary";
+      const params = new URLSearchParams();
+      if (year !== "all") params.append("year", year);
+      if (month !== "all") params.append("month", month);
+      
+      const queryStr = params.toString();
+      if (queryStr) {
+        url += `?${queryStr}`;
+      }
+
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setFinancialAnalytics(data);
+      } else {
+        openToast("فشل تحميل البيانات المالية والتحليلات من الخادم");
+      }
+    } catch (err) {
+      console.error(err);
+      openToast("خطأ أثناء الاتصال بالخادم لتحميل التقارير المالية");
+    } finally {
+      setIsLoadingAnalytics(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mainTab === "analytics") {
+      fetchFinancialAnalytics(selectedAnalyticsYear, selectedAnalyticsMonth);
+    }
+  }, [mainTab, selectedAnalyticsYear, selectedAnalyticsMonth]);
 
   // بيانات الحجوزات وإيصالات الدفع
   const [bookings, setBookings] = useState<StudentBooking[]>([]);
@@ -267,6 +337,9 @@ export function AdminInspectionPortal({
     getDefaultAmenities("كفر الشيخ", "جامعة كفر الشيخ")
   );
 
+  // إدارة وتعيين تقييمات مكاني للمنطقة المحيطة أثناء تفعيل العقار ونشره
+  const [activationAmenities, setActivationAmenities] = useState<NearbyAmenities | null>(null);
+
   // تحديث القوائم
   const refreshAll = () => {
     syncInspectionsFromApi();
@@ -329,6 +402,8 @@ export function AdminInspectionPortal({
     if (!selectedInspection) return;
 
     try {
+      const amenitiesToPass = activationAmenities || getEffectiveAmenities(selectedInspection);
+
       const res = await publishInspectionApi(selectedInspection.id, {
         title: selectedInspection.title,
         pricePerMonth: selectedInspection.pricePerMonth,
@@ -346,12 +421,14 @@ export function AdminInspectionPortal({
         livabilityScore,
         inspectorReport,
         finalImages: selectedInspection.finalImages?.length ? selectedInspection.finalImages : selectedInspection.initialPhotos,
+        nearbyAmenities: amenitiesToPass,
       });
 
       activateAndPublishProperty(selectedInspection.id, {
         livabilityScore,
         video360Url: video360Url || selectedInspection.video360Url,
         inspectorReport,
+        nearbyAmenities: amenitiesToPass,
       });
 
       openToast(`🎉 تم تفعيل ونشر "${selectedInspection.title}" رسمياً للطلاب مع صور وجولة 360°!`);
@@ -660,6 +737,32 @@ export function AdminInspectionPortal({
                 {supportCounts.open + supportCounts.in_progress}
               </span>
             )}
+          </button>
+
+          <button
+            onClick={() => setMainTab("reserved_properties")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "reserved_properties"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-reserved-properties"
+          >
+            <Home size={16} />
+            🏠 الشقق المحجوزة
+          </button>
+
+          <button
+            onClick={() => setMainTab("analytics")}
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+              mainTab === "analytics"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-admin-analytics"
+          >
+            <BarChart3 size={16} />
+            📊 المحاسبة والتحليلات
           </button>
         </div>
       </div>
@@ -1337,6 +1440,7 @@ export function AdminInspectionPortal({
                         <button
                           onClick={() => {
                             setSelectedInspection(insp);
+                            setActivationAmenities(getEffectiveAmenities(insp));
                             setActionModal("activate");
                           }}
                           className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-emerald-700"
@@ -2242,6 +2346,553 @@ export function AdminInspectionPortal({
             </div>
           </div>
         )}
+
+        {/* التبويب 8: الشقق المحجوزة وتفاصيل الإشغال والحاجزين */}
+        {mainTab === "reserved_properties" && (
+          <div className="space-y-6" data-testid="section-admin-reserved-properties">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <Home size={20} className="text-primary" />
+                  الشقق المحجوزة ونظام إدارة الحاجزين
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  استعراض مباشر وموثق لجميع الشقق التي تحتوي على عمليات حجز، وسعة الإشغال، والوصول الفوري لجميع بيانات الطلاب وإيصالات اشتراكهم.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchReservedProperties}
+                  className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-xs font-bold text-muted-foreground hover:text-foreground shadow-sm"
+                >
+                  تحديث البيانات ↺
+                </button>
+              </div>
+            </div>
+
+            {isLoadingReserved ? (
+              <div className="py-20 text-center">
+                <span className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-2" />
+                <p className="text-xs text-muted-foreground font-bold">جاري تحميل الشقق المحجوزة وتجميع بيانات الإشغال...</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {reservedProperties.map((item) => {
+                  const isFullyBooked = item.occupancy.isFull;
+                  return (
+                    <div
+                      key={item.property.id}
+                      className={`rounded-2xl border bg-card p-5 space-y-4 shadow-sm hover:shadow-md transition-all ${
+                        isFullyBooked ? "border-emerald-500/30 bg-emerald-500/[0.02]" : "border-border"
+                      }`}
+                      data-testid={`reserved-property-card-${item.property.id}`}
+                    >
+                      <div className="flex items-start justify-between" dir="rtl">
+                        <div className="min-w-0 text-right">
+                          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary block w-fit mb-1.5">
+                            {item.property.university}
+                          </span>
+                          <h3 className="font-extrabold text-foreground text-sm line-clamp-1">{item.property.title}</h3>
+                          <p className="text-xs text-muted-foreground mt-0.5">{item.property.address}</p>
+                        </div>
+
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-black whitespace-nowrap ${
+                            isFullyBooked
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              : "bg-amber-500/10 text-amber-600"
+                          }`}
+                        >
+                          {isFullyBooked ? "مكتملة الحجز" : "متاح غرف شاغرة"}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 bg-muted/40 p-3 rounded-xl text-center text-xs">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">السعة الإجمالية</span>
+                          <strong className="font-bold text-foreground">{item.occupancy.capacity}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">الأماكن المشغولة</span>
+                          <strong className="font-bold text-foreground">{item.occupancy.occupiedPlaces}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">المتاح</span>
+                          <strong className="font-bold text-primary">{item.occupancy.availablePlaces}</strong>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs border-t border-border/60 pt-3">
+                        <div className="flex items-center gap-1.5">
+                          <Users size={14} className="text-muted-foreground" />
+                          <span className="font-semibold text-muted-foreground">عدد الطلاب الحاجزين:</span>
+                          <strong className="text-foreground font-black">{item.bookings.length}</strong>
+                        </div>
+
+                        <button
+                          onClick={() => setSelectedReservedProperty(item)}
+                          className="rounded-xl bg-purple-600 hover:bg-purple-700 px-3.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition-all"
+                        >
+                          عرض التفاصيل
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {reservedProperties.length === 0 && (
+                  <div className="col-span-full rounded-2xl border-2 border-dashed border-border p-12 text-center text-muted-foreground space-y-2">
+                    <Home size={32} className="mx-auto text-muted-foreground/60 mb-2" />
+                    <p className="font-bold text-foreground">لا توجد عقارات محجوزة حالياً</p>
+                    <p className="text-xs text-muted-foreground">تظهر العقارات هنا بمجرد تسجيل طلبات حجز أو إشغال عليها.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* التبويب 9: المحاسبة والتحليلات */}
+        {mainTab === "analytics" && (
+          <div className="space-y-6 animate-fadeIn" data-testid="section-admin-analytics" dir="rtl">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-foreground flex items-center gap-2">
+                  <BarChart3 size={20} className="text-primary" />
+                  المحاسبة والتحليلات المالية والتشغيلية
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  تقارير محاسبية تفصيلية مستخرجة بالكامل من قاعدة بيانات PostgreSQL الحقيقية لجميع مدفوعات الطلاب والاشتراكات ومعدلات الإشغال.
+                </p>
+              </div>
+
+              {/* فلاتر مبسطة */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-muted/60 px-3 py-1.5 rounded-xl border border-border">
+                  <span className="text-[11px] font-bold text-muted-foreground">السنة:</span>
+                  <select
+                    value={selectedAnalyticsYear}
+                    onChange={(e) => setSelectedAnalyticsYear(e.target.value)}
+                    className="bg-transparent border-0 text-xs font-bold focus:ring-0 p-0 text-foreground"
+                    data-testid="filter-analytics-year"
+                  >
+                    <option value="all">كل السنوات</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-muted/60 px-3 py-1.5 rounded-xl border border-border">
+                  <span className="text-[11px] font-bold text-muted-foreground">الشهر:</span>
+                  <select
+                    value={selectedAnalyticsMonth}
+                    onChange={(e) => setSelectedAnalyticsMonth(e.target.value)}
+                    className="bg-transparent border-0 text-xs font-bold focus:ring-0 p-0 text-foreground"
+                    data-testid="filter-analytics-month"
+                  >
+                    <option value="all">كل الشهور</option>
+                    <option value="01">يناير (01)</option>
+                    <option value="02">فبراير (02)</option>
+                    <option value="03">مارس (03)</option>
+                    <option value="04">أبريل (04)</option>
+                    <option value="05">مايو (05)</option>
+                    <option value="06">يونيو (06)</option>
+                    <option value="07">يوليو (07)</option>
+                    <option value="08">أغسطس (08)</option>
+                    <option value="09">سبتمبر (09)</option>
+                    <option value="10">أكتوبر (10)</option>
+                    <option value="11">نوفمبر (11)</option>
+                    <option value="12">ديسمبر (12)</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => fetchFinancialAnalytics(selectedAnalyticsYear, selectedAnalyticsMonth)}
+                  className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl transition-colors"
+                  title="تحديث البيانات"
+                >
+                  <RefreshCw size={14} className={isLoadingAnalytics ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+
+            {isLoadingAnalytics && !financialAnalytics ? (
+              <div className="flex flex-col items-center justify-center py-20 space-y-3">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs text-muted-foreground font-bold">جاري تحميل وتجميع المؤشرات المالية الحقيقية...</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* 1. الكروت المحاسبية العليا */}
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+                  <div className="bg-primary/5 border border-primary/20 p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-primary/80 uppercase">إجمالي الإيرادات</span>
+                    <h4 className="text-lg font-black text-foreground mt-1">
+                      {((financialAnalytics?.summary?.totalRevenue || 0)).toLocaleString("ar-EG")} <span className="text-[10px] font-normal">ج.م</span>
+                    </h4>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">شامل الإيجار، الاشتراكات والودائع</p>
+                  </div>
+
+                  <div className="bg-card border border-border p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">اشتراكات مكاني</span>
+                    <h4 className="text-lg font-black text-foreground mt-1">
+                      {((financialAnalytics?.summary?.subscriptionRevenue || 0)).toLocaleString("ar-EG")} <span className="text-[10px] font-normal">ج.م</span>
+                    </h4>
+                    <p className="text-[9px] text-emerald-600 mt-0.5">الاشتراكات المعتمدة فقط</p>
+                  </div>
+
+                  <div className="bg-card border border-border p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">الإيجارات المحصلة</span>
+                    <h4 className="text-lg font-black text-foreground mt-1">
+                      {((financialAnalytics?.summary?.collectedRent || 0)).toLocaleString("ar-EG")} <span className="text-[10px] font-normal">ج.م</span>
+                    </h4>
+                    <p className="text-[9px] text-blue-600 mt-0.5">الدفعات المدفوعة فعلياً</p>
+                  </div>
+
+                  <div className="bg-card border border-border p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">الإيجارات المستحقة</span>
+                    <h4 className="text-lg font-black text-foreground mt-1">
+                      {((financialAnalytics?.summary?.dueRent || 0)).toLocaleString("ar-EG")} <span className="text-[10px] font-normal">ج.م</span>
+                    </h4>
+                    <p className="text-[9px] text-amber-600 mt-0.5">في انتظار السداد والرفع</p>
+                  </div>
+
+                  <div className="bg-card border border-border p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">الودائع المحصلة</span>
+                    <h4 className="text-lg font-black text-foreground mt-1">
+                      {((financialAnalytics?.summary?.collectedDeposit || 0)).toLocaleString("ar-EG")} <span className="text-[10px] font-normal">ج.م</span>
+                    </h4>
+                    <p className="text-[9px] text-indigo-600 mt-0.5">مبالغ التأمين المدفوعة</p>
+                  </div>
+
+                  <div className="bg-card border border-border p-4 rounded-xl text-right">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">أعضاء Pro</span>
+                    <h4 className="text-lg font-black text-foreground mt-1 text-primary">
+                      {financialAnalytics?.summary?.proUsersCount || 0} <span className="text-[10px] font-normal text-muted-foreground">عضو</span>
+                    </h4>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">الاشتراك مقبول ومفعّل</p>
+                  </div>
+                </div>
+
+                {/* الصف الثاني: الرسم البياني وتفصيل الحالات */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* الرسم البياني المحاسبي */}
+                  <div className="lg:col-span-2 bg-card border border-border p-5 rounded-2xl">
+                    <h3 className="text-sm font-extrabold text-foreground mb-4 flex items-center gap-1.5">
+                      <span>📈</span> الإيرادات المحصلة شهرياً بالتفصيل
+                    </h3>
+                    {(!financialAnalytics?.monthlyRevenueData || financialAnalytics.monthlyRevenueData.length === 0) ? (
+                      <div className="py-20 text-center text-xs text-muted-foreground">لا توجد دفعات مكتملة أو اشتراكات مقبولة حالياً لعرض الرسم البياني.</div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="w-full">
+                          {/* Beautiful Pure SVG Chart */}
+                          <svg viewBox="0 0 600 240" className="w-full h-auto">
+                            {/* Horizontal Lines */}
+                            {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                              const maxVal = Math.max(...(financialAnalytics.monthlyRevenueData.map((d: any) => d.total) || [1200]));
+                              const val = Math.round(maxVal * ratio);
+                              const y = 190 - ratio * 150;
+                              return (
+                                <g key={idx}>
+                                  <line x1="60" y1={y} x2="570" y2={y} stroke="var(--border)" strokeDasharray="3 3" strokeWidth="1" />
+                                  <text x="50" y={y + 4} textAnchor="end" className="text-[9px] fill-muted-foreground font-mono font-black">
+                                    {val.toLocaleString("ar-EG")}
+                                  </text>
+                                </g>
+                              );
+                            })}
+
+                            {/* Grouped stacked bars */}
+                            {financialAnalytics.monthlyRevenueData.map((d: any, idx: number) => {
+                              const maxVal = Math.max(...(financialAnalytics.monthlyRevenueData.map((d: any) => d.total) || [1200]));
+                              const count = financialAnalytics.monthlyRevenueData.length;
+                              const width = 36;
+                              const gap = (480 - count * width) / (count + 1);
+                              const x = 75 + idx * (width + gap);
+
+                              const hSub = (d.subscription / maxVal) * 150;
+                              const hRent = (d.rent / maxVal) * 150;
+                              const hDep = (d.deposit / maxVal) * 150;
+
+                              const ySub = 190 - hSub;
+                              const yRent = ySub - hRent;
+                              const yDep = yRent - hDep;
+
+                              return (
+                                <g key={idx} className="group cursor-pointer">
+                                  {/* Subscriptions */}
+                                  {hSub > 0 && (
+                                    <rect x={x} y={ySub} width={width} height={hSub} fill="#14b8a6" className="transition-all duration-300 hover:opacity-90" />
+                                  )}
+                                  {/* Rents */}
+                                  {hRent > 0 && (
+                                    <rect x={x} y={yRent} width={width} height={hRent} fill="#3b82f6" className="transition-all duration-300 hover:opacity-90" />
+                                  )}
+                                  {/* Deposits */}
+                                  {hDep > 0 && (
+                                    <rect x={x} y={yDep} width={width} height={hDep} fill="#f59e0b" className="transition-all duration-300 hover:opacity-90" />
+                                  )}
+
+                                  {/* Month label */}
+                                  <text x={x + width / 2} y="206" textAnchor="middle" className="text-[9px] fill-foreground font-bold">
+                                    {(() => {
+                                      const parts = d.month.split("-");
+                                      const monthMap: any = {
+                                        "01": "يناير", "02": "فبراير", "03": "مارس", "04": "أبريل",
+                                        "05": "مايو", "06": "يونيو", "07": "يوليو", "08": "أغسطس",
+                                        "09": "سبتمبر", "10": "أكتوبر", "11": "نوفمبر", "12": "ديسمبر"
+                                      };
+                                      return `${monthMap[parts[1]] || parts[1]} ${parts[0]}`;
+                                    })()}
+                                  </text>
+
+                                  <title>
+                                    {`إيرادات شهر ${d.month}:
+إجمالي المحصل: ${d.total.toLocaleString()} ج.م
+• اشتراكات مكاني: ${d.subscription.toLocaleString()} ج.م
+• الإيجارات: ${d.rent.toLocaleString()} ج.م
+• الودائع: ${d.deposit.toLocaleString()} ج.م`}
+                                  </title>
+                                </g>
+                              );
+                            })}
+
+                            {/* Base Line */}
+                            <line x1="60" y1="190" x2="570" y2="190" stroke="var(--border)" strokeWidth="1.5" />
+                          </svg>
+                        </div>
+
+                        {/* Legends */}
+                        <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] font-bold text-muted-foreground border-t border-border pt-3">
+                          <div className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-[#14b8a6]" />
+                            <span>اشتراك مكاني (١,٢٠٠ ج.م)</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-[#3b82f6]" />
+                            <span>الإيجارات المحصلة</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-[#f59e0b]" />
+                            <span>الودائع المحصلة</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* تحليل حالات الدفع وسجل المعاملات */}
+                  <div className="bg-card border border-border p-5 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-foreground mb-4 flex items-center gap-1.5">
+                        <span>🔍</span> تحليل حالات الدفع المالي الشهري
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground mb-4">
+                        حالات الدفع الخاصة بالدفعات المالية المسجلة حالياً في دفتر الإيجار الشهري.
+                      </p>
+
+                      <div className="space-y-3.5">
+                        <div className="flex items-center justify-between bg-emerald-500/5 p-2.5 rounded-xl border border-emerald-500/10">
+                          <span className="text-xs font-bold text-emerald-700">مدفوع ومقبول ✅</span>
+                          <span className="text-xs font-mono font-black text-emerald-800 bg-emerald-500/15 px-2 py-0.5 rounded-lg">
+                            {financialAnalytics?.paymentStatusCounts?.paid || 0} دفعة
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-blue-500/5 p-2.5 rounded-xl border border-blue-500/10">
+                          <span className="text-xs font-bold text-blue-700">قيد المراجعة والتدقيق 🔍</span>
+                          <span className="text-xs font-mono font-black text-blue-800 bg-blue-500/15 px-2 py-0.5 rounded-lg">
+                            {financialAnalytics?.paymentStatusCounts?.pending_review || 0} دفعة
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-amber-500/5 p-2.5 rounded-xl border border-amber-500/10">
+                          <span className="text-xs font-bold text-amber-700">مستحق ولم يتم الرفع ⏳</span>
+                          <span className="text-xs font-mono font-black text-amber-800 bg-amber-500/15 px-2 py-0.5 rounded-lg">
+                            {financialAnalytics?.paymentStatusCounts?.due || 0} دفعة
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-rose-500/5 p-2.5 rounded-xl border border-rose-500/10">
+                          <span className="text-xs font-bold text-rose-700">متأخر ومتجاوز الاستحقاق ⚠️</span>
+                          <span className="text-xs font-mono font-black text-rose-800 bg-rose-500/15 px-2 py-0.5 rounded-lg">
+                            {financialAnalytics?.paymentStatusCounts?.overdue || 0} دفعة
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-red-500/5 p-2.5 rounded-xl border border-red-500/10">
+                          <span className="text-xs font-bold text-red-700">مرفوض مع تدوين ملاحظات ❌</span>
+                          <span className="text-xs font-mono font-black text-red-800 bg-red-500/15 px-2 py-0.5 rounded-lg">
+                            {financialAnalytics?.paymentStatusCounts?.rejected || 0} دفعة
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-border pt-3 text-[10px] text-muted-foreground leading-relaxed">
+                      * يرجى العلم أن الدفعات ذات الحالة <strong>قيد المراجعة</strong> أو <strong>المرفوضة</strong> لا يتم تضمين مبالغها في الإيرادات المحصلة إلا بعد قيام المشرف باعتماد الإيصال والموافقة اليدوية عليه.
+                    </div>
+                  </div>
+                </div>
+
+                {/* الصف الثالث: تفصيلات الاشتراكات والإيجارات والودائع وسعة الإشغال */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* تحليلات الاشتراكات */}
+                  <div className="bg-card border border-border p-5 rounded-2xl space-y-4">
+                    <h3 className="text-xs font-black text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                      <span className="text-[#14b8a6]">●</span> تحليلات اشتراكات مكاني
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الاشتراكات المعتمدة:</span>
+                        <span className="font-bold text-foreground">{financialAnalytics?.subscription?.approvedCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الاشتراكات قيد المراجعة:</span>
+                        <span className="font-bold text-foreground text-amber-600">{financialAnalytics?.subscription?.pendingCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الاشتراكات المرفوضة:</span>
+                        <span className="font-bold text-foreground text-red-600">{financialAnalytics?.subscription?.rejectedCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">عدد أعضاء Pro النشطين:</span>
+                        <span className="font-bold text-primary">{financialAnalytics?.subscription?.proMembersCount || 0}</span>
+                      </div>
+                      <div className="border-t border-border pt-2 flex justify-between items-center text-xs font-black">
+                        <span className="text-foreground">إيراد الاشتراكات المعتمد:</span>
+                        <span className="text-[#14b8a6]">{(financialAnalytics?.subscription?.totalRevenue || 0).toLocaleString()} ج.م</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* تحليلات الإيجار */}
+                  <div className="bg-card border border-border p-5 rounded-2xl space-y-4">
+                    <h3 className="text-xs font-black text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                      <span className="text-[#3b82f6]">●</span> تحليلات الإيجارات الشهرية
+                    </h3>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الدفعات المدفوعة:</span>
+                        <span className="font-bold text-emerald-600">{financialAnalytics?.rent?.paidCount || 0} دفعة</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الدفعات قيد المراجعة:</span>
+                        <span className="font-bold text-blue-600">{financialAnalytics?.rent?.pendingCount || 0} دفعة</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الدفعات المستحقة:</span>
+                        <span className="font-bold text-amber-600">{financialAnalytics?.rent?.dueCount || 0} دفعة</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الدفعات المتأخرة:</span>
+                        <span className="font-bold text-red-600">{financialAnalytics?.rent?.overdueCount || 0} دفعة</span>
+                      </div>
+                      <div className="border-t border-border pt-2 flex justify-between items-center text-xs font-black">
+                        <span className="text-foreground">إجمالي المحصل الفعلي:</span>
+                        <span className="text-primary">{(financialAnalytics?.rent?.totalCollected || 0).toLocaleString()} ج.م</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* تحليلات الودائع والتأمين */}
+                  <div className="bg-card border border-border p-5 rounded-2xl space-y-4">
+                    <h3 className="text-xs font-black text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                      <span className="text-[#f59e0b]">●</span> تحليلات مبالغ التأمين والودائع
+                    </h3>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الودائع المحصلة بالكامل:</span>
+                        <span className="font-bold text-emerald-600">{(financialAnalytics?.deposit?.totalPaid || 0).toLocaleString()} ج.م</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">الودائع المتبقية/غير المسددة:</span>
+                        <span className="font-bold text-red-600">{(financialAnalytics?.deposit?.totalUnpaid || 0).toLocaleString()} ج.م</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">إجمالي مبالغ التأمين المطلوبة:</span>
+                        <span className="font-bold text-foreground">{(financialAnalytics?.deposit?.totalRequired || 0).toLocaleString()} ج.م</span>
+                      </div>
+                      <div className="pt-2 border-t border-border">
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-[#f59e0b] h-1.5 rounded-full" 
+                            style={{ 
+                              width: `${(financialAnalytics?.deposit?.totalRequired || 0) > 0 
+                                ? Math.round(((financialAnalytics?.deposit?.totalPaid || 0) / financialAnalytics.deposit.totalRequired) * 100) 
+                                : 0}%` 
+                            }} 
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                          <span>نسبة التحصيل:</span>
+                          <span className="font-bold">
+                            {(financialAnalytics?.deposit?.totalRequired || 0) > 0 
+                              ? Math.round(((financialAnalytics?.deposit?.totalPaid || 0) / financialAnalytics.deposit.totalRequired) * 100) 
+                              : 0}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* تحليلات إشغال السكن والعقارات */}
+                  <div className="bg-card border border-border p-5 rounded-2xl space-y-4">
+                    <h3 className="text-xs font-black text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                      <span className="text-primary">●</span> سعة الإشغال والقدرة التشغيلية
+                    </h3>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">إجمالي العقارات:</span>
+                        <span className="font-bold text-foreground">{financialAnalytics?.occupancy?.totalProperties || 0} عقار</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">مكتملة الحجز:</span>
+                        <span className="font-bold text-foreground">{financialAnalytics?.occupancy?.fullyBookedProperties || 0} عقار</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">شبه مشغولة/محجوزة:</span>
+                        <span className="font-bold text-foreground">{financialAnalytics?.occupancy?.reservedProperties || 0} عقار</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">إجمالي الأماكن (الأسرة):</span>
+                        <span className="font-bold text-foreground">{financialAnalytics?.occupancy?.totalPlaces || 0} مكان</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">الأسرة المشغولة:</span>
+                        <span className="font-bold text-primary">{financialAnalytics?.occupancy?.occupiedPlaces || 0} مكان</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-muted-foreground">الأسرة المتاحة:</span>
+                        <span className="font-bold text-emerald-600">{financialAnalytics?.occupancy?.availablePlaces || 0} مكان</span>
+                      </div>
+
+                      <div className="pt-2 border-t border-border">
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-primary h-1.5 rounded-full transition-all duration-500" 
+                            style={{ width: `${financialAnalytics?.occupancy?.occupancyRate || 0}%` }} 
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                          <span>نسبة إشغال السكن الكلية:</span>
+                          <span className="font-bold text-primary">{financialAnalytics?.occupancy?.occupancyRate || 0}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Modal: تعديل بيانات عقار منشور */}
@@ -2618,7 +3269,7 @@ export function AdminInspectionPortal({
       <StandardModal
         isOpen={actionModal === "activate" && Boolean(selectedInspection)}
         onClose={() => setActionModal(null)}
-        maxWidthClassName="max-w-lg"
+        maxWidthClassName="max-w-3xl"
         title="تفعيل الوحدة ونشرها للطلاب مع جولة 360°"
         subtitle="تأكيد فحص العقار على الطبيعة وإدخال رابط الجولة الافتراضية ومعدل الجودة لنشره فوراً في الكتالوج العام"
         testId="admin-modal-activate-inspection"
@@ -2680,8 +3331,22 @@ export function AdminInspectionPortal({
               />
             </div>
 
+            {/* تقييمات مكاني وإدارة المنطقة المحيطة */}
+            {selectedInspection && (
+              <div className="border-t border-border pt-3">
+                <NearbyAmenitiesForm
+                  amenities={activationAmenities || getEffectiveAmenities(selectedInspection)}
+                  onChange={(upd) => setActivationAmenities(upd)}
+                  city={selectedInspection.city}
+                  university={selectedInspection.university}
+                  propertyLat={selectedInspection.lat ? Number(selectedInspection.lat) : undefined}
+                  propertyLng={selectedInspection.lng ? Number(selectedInspection.lng) : undefined}
+                />
+              </div>
+            )}
+
             <div className="rounded-xl bg-emerald-500/10 p-3 text-[11px] text-emerald-800 dark:text-emerald-300 leading-5">
-              ✓ عند الضغط على "تفعيل ونشر"، سيظهر العقار مباشرة لجميع الطلاب في صفحة "اكتشف السكن" كعقار موثق بمعاينة ميدانية.
+              ✓ عند الضغط على "تفعيل ونشر"، سيظهر العقار مباشرة لجميع الطلاب في صفحة "اكتشف السكن" كعقار موثق بمعاينة ميدانية مع تقييمات مكاني المعتمدة للخدمات.
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -3017,6 +3682,196 @@ export function AdminInspectionPortal({
             )}
           </div>
         ) : null}
+      </StandardModal>
+
+      {/* Modal: تفاصيل الشقة المحجوزة وقائمة الحاجزين الكاملة */}
+      <StandardModal
+        isOpen={Boolean(selectedReservedProperty)}
+        onClose={() => setSelectedReservedProperty(null)}
+        maxWidthClassName="max-w-3xl"
+        title="🏠 تفاصيل إشغال العقار وقائمة جميع الحاجزين"
+        subtitle={selectedReservedProperty?.property.title}
+        testId="admin-modal-reserved-property-details"
+        closeButtonAriaLabel="إغلاق تفاصيل الشقة المحجوزة"
+      >
+        {selectedReservedProperty && (
+          <div className="space-y-6 text-right text-xs" dir="rtl">
+            
+            {/* بطاقة العقار العلوية */}
+            <div className="rounded-2xl border border-border bg-muted/30 p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 space-y-1">
+                <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                  {selectedReservedProperty.property.university}
+                </span>
+                <h3 className="text-base font-black text-foreground mt-1">{selectedReservedProperty.property.title}</h3>
+                <p className="text-xs text-muted-foreground">{selectedReservedProperty.property.address}</p>
+              </div>
+              <div className="space-y-1.5 border-t md:border-t-0 md:border-r border-border/60 pt-3 md:pt-0 md:pr-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">الإيجار الشهري:</span>
+                  <strong className="text-foreground font-extrabold">{selectedReservedProperty.property.pricePerMonth} جنيه</strong>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">حالة السكن:</span>
+                  <strong className={selectedReservedProperty.occupancy.isFull ? "text-emerald-600 font-bold" : "text-amber-500 font-bold"}>
+                    {selectedReservedProperty.occupancy.isFull ? "مكتملة الحجز" : "متاح أماكن شاغرة"}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* إحصاءات الإشغال الفعلي */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-border p-3.5 bg-card">
+                <span className="text-[10px] text-muted-foreground block font-bold">السعة (غرف النوم)</span>
+                <strong className="text-lg font-black text-foreground block mt-0.5">{selectedReservedProperty.occupancy.capacity}</strong>
+              </div>
+              <div className="rounded-xl border border-border p-3.5 bg-card">
+                <span className="text-[10px] text-muted-foreground block font-bold">شركاء سكن حاليين (المالك)</span>
+                <strong className="text-lg font-black text-foreground block mt-0.5">{selectedReservedProperty.occupancy.currentRoommates}</strong>
+              </div>
+              <div className="rounded-xl border border-border p-3.5 bg-card">
+                <span className="text-[10px] text-muted-foreground block font-bold">حجوزات نشطة</span>
+                <strong className="text-lg font-black text-primary block mt-0.5">
+                  {selectedReservedProperty.occupancy.confirmedBookings + selectedReservedProperty.occupancy.pendingBookings}
+                </strong>
+              </div>
+              <div className="rounded-xl border border-border p-3.5 bg-card">
+                <span className="text-[10px] text-muted-foreground block font-bold">الأماكن المتبقية الشاغرة</span>
+                <strong className="text-lg font-black text-emerald-600 block mt-0.5">{selectedReservedProperty.occupancy.availablePlaces}</strong>
+              </div>
+            </div>
+
+            {/* قائمة جميع الحاجزين */}
+            <div className="space-y-3">
+              <h4 className="font-extrabold text-foreground border-b border-border pb-2 flex items-center gap-1.5">
+                <Users size={16} className="text-primary" />
+                قائمة جميع الطلاب الحاجزين في هذه الوحدة ({selectedReservedProperty.bookings.length})
+              </h4>
+
+              <div className="space-y-3.5 max-h-[40vh] overflow-y-auto pr-1">
+                {selectedReservedProperty.bookings.map((b: any) => (
+                  <div key={b.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-muted px-2 py-0.5 font-mono font-bold text-foreground">
+                          {b.bookingCode}
+                        </span>
+                        <strong className="text-sm font-black text-foreground">{b.student.fullName}</strong>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          b.status === "confirmed" ? "bg-emerald-500/10 text-emerald-600" :
+                          b.status === "pending_review" ? "bg-blue-500/10 text-blue-600" : "bg-rose-500/10 text-rose-600"
+                        }`}>
+                          حجز: {b.status === "confirmed" ? "مؤكد" : b.status === "pending_review" ? "تحت المراجعة" : "مرفوض"}
+                        </span>
+
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          b.subscriptionStatus === "approved" ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+                        }`}>
+                          اشتراك مكاني: {b.subscriptionStatus === "approved" ? "مقبول" : "تحت المراجعة"}
+                        </span>
+
+                        <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-bold">
+                          Pro: {b.subscriptionStatus === "approved" ? "⭐ مفعّل" : "غير مفعّل"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-muted-foreground text-right">
+                      <div>
+                        <span className="text-[10px] block text-muted-foreground">رقم هاتف الطالب:</span>
+                        <div className="flex items-center gap-1 mt-0.5 justify-end">
+                          <strong className="text-foreground font-mono">{b.student.phoneNumber}</strong>
+                          {b.student.phoneNumber && (
+                            <a
+                              href={`https://wa.me/${b.student.phoneNumber.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-500 hover:text-emerald-600 inline-flex"
+                              title="مراسلة عبر واتساب"
+                            >
+                              <MessageCircle size={14} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] block text-muted-foreground">تاريخ ووقت المعاينة:</span>
+                        <strong className="text-foreground block mt-0.5">{b.appointmentDate} - {b.appointmentTime}</strong>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] block text-muted-foreground">مبلغ اشتراك مكاني:</span>
+                        <strong className="text-foreground block mt-0.5">{b.subscriptionAmount} جنيه</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs border-t border-border/40 pt-2.5">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block">حالة التأمين (الوديعة):</span>
+                        <strong className="text-foreground block mt-0.5">
+                          {b.depositAmount > 0 ? `${b.depositAmount} جنيه` : "يحدد لاحقاً"} ({b.depositStatus === "paid" ? "مقبول" : "غير مدفوع"})
+                        </strong>
+                      </div>
+
+                      {b.subscriptionReceiptUrl && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground block">إيصال الاشتراك:</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptUrl(b.subscriptionReceiptUrl)}
+                            className="flex items-center gap-1 bg-primary/10 text-primary px-2.5 py-1 rounded-lg text-[11px] font-bold"
+                          >
+                            <Eye size={12} />
+                            عرض الإيصال
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Rent Payments Ledger */}
+                    {b.rentPayments && b.rentPayments.length > 0 && (
+                      <div className="bg-muted/30 p-2.5 rounded-lg border border-border/40 mt-2">
+                        <span className="text-[10px] font-bold text-foreground block mb-1">دفتر إيجارات الطالب (Rent Ledger):</span>
+                        <div className="space-y-1 text-[10px]">
+                          {b.rentPayments.map((p: any) => (
+                            <div key={p.id} className="flex justify-between items-center">
+                              <span>قسط شهر: {p.monthName}</span>
+                              <span className={`font-mono font-bold ${p.status === "approved" ? "text-emerald-600" : "text-amber-500"}`}>
+                                {p.amount} جنيه ({p.status === "approved" ? "مقبول" : "قيد المراجعة"})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {selectedReservedProperty.bookings.length === 0 && (
+                  <div className="text-center py-6 text-muted-foreground">
+                    لا يوجد حوزات مضافة لهذه الشقة حالياً.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setSelectedReservedProperty(null)}
+                className="rounded-xl border border-border px-5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+
+          </div>
+        )}
       </StandardModal>
     </div>
   );

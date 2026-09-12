@@ -5,6 +5,10 @@ import { eq, and, or, desc, asc, sql } from "drizzle-orm";
 import { insertApartmentSchema } from "@workspace/db/schema";
 import { getAuth } from "@clerk/express";
 import { ensureSeedApartments } from "../lib/seed-apartments";
+import { createNotification } from "../lib/notifications-helper";
+import { resolveAndExtractMapLink, isValidCoordinate } from "../lib/link-parser";
+import { fetchNearbyAmenitiesFromOverpass } from "../lib/overpass";
+import { validateAmenitiesRatings, persistServiceRating } from "../lib/rating-validator";
 
 const router = Router();
 
@@ -314,6 +318,69 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
   }
 
   try {
+    // 1. Google Maps link resolution and coordinates extraction
+    let lat = bodyData.lat !== undefined ? Number(bodyData.lat) : undefined;
+    let lng = bodyData.lng !== undefined ? Number(bodyData.lng) : undefined;
+    const mapLink = bodyData.mapLink || bodyData.googleMapsLink || bodyData.locationLink;
+
+    if (mapLink) {
+      const resolved = await resolveAndExtractMapLink(mapLink);
+      if (resolved) {
+        lat = resolved.lat;
+        lng = resolved.lng;
+      } else {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "لم نتمكن من استخراج الإحداثيات من رابط الخريطة المدخل. يرجى توفير رابط Google Maps صالح أو إدخال الإحداثيات مباشرة.",
+        });
+      }
+    }
+
+    // 2. Coordinates Range Validation
+    if (lat !== undefined || lng !== undefined) {
+      if (lat === undefined || lng === undefined) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "يجب تحديد خط العرض وخط الطول معاً لتحديد الموقع.",
+        });
+      }
+
+      if (!isValidCoordinate(lat, lng)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: `الإحداثيات المدخلة غير صالحة (خط العرض: ${lat}، خط الطول: ${lng}). يجب أن يكون خط العرض بين -90 و 90، وخط الطول بين -180 و 180.`,
+        });
+      }
+    }
+
+    // 3. Real OSM Overpass Fetching or Admin-provided nearbyAmenities with Mkany ratings
+    let nearbyAmenities = null;
+    if (req.body.nearbyAmenities !== undefined) {
+      if (dbUser.role === "admin" || dbUser.role === "super_admin") {
+        const ratingValidation = validateAmenitiesRatings(req.body.nearbyAmenities);
+        if (!ratingValidation.valid) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: ratingValidation.error || "التقييم المدخل غير صالح. تقييم مكاني يجب أن يكون بين 0 و 5 وبمضاعفات النصف نجمة (0, 0.5, 1, 1.5, ... 5).",
+          });
+        }
+        nearbyAmenities = ratingValidation.sanitized;
+        for (const entry of ratingValidation.entriesToPersist) {
+          try {
+            await persistServiceRating(entry, dbUser.id);
+          } catch (persistErr) {
+            req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
+          }
+        }
+      }
+    } else if (lat !== undefined && lng !== undefined) {
+      try {
+        nearbyAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+      } catch (overpassErr) {
+        console.error("Failed to fetch amenities from Overpass:", overpassErr);
+      }
+    }
+
     // Extract images list from photos or images array
     const photoUrls: string[] = Array.isArray(photos) && photos.length > 0
       ? photos
@@ -333,6 +400,9 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       .insert(apartments)
       .values({
         ...result.data,
+        lat,
+        lng,
+        nearbyAmenities,
         images: photoUrls,
         ownerId: dbUser.id,
         status: initialStatus,
@@ -351,6 +421,31 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       }));
 
       savedPhotos = await db.insert(apartmentPhotos).values(photoInserts).returning();
+    }
+
+    try {
+      if (dbUser.role !== "admin" && dbUser.role !== "super_admin") {
+        // Owner submitted a property for review
+        await createNotification({
+          userId: dbUser.id,
+          type: "owner_property_submitted",
+          title: "تم تقديم العقار للمراجعة",
+          body: `تم استلام تفاصيل عقارك "${apartment.title}" بنجاح وهو قيد المراجعة حالياً من قبل الإدارة.`,
+          referenceType: "property",
+          referenceId: String(apartment.id),
+        });
+
+        await createNotification({
+          userId: "admin",
+          type: "admin_property_submitted",
+          title: "عقار جديد بانتظار المراجعة والاعتماد",
+          body: `قام المالك ${dbUser.fullName} بتقديم عقار جديد للمراجعة والاعتماد: "${apartment.title}"`,
+          referenceType: "property",
+          referenceId: String(apartment.id),
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on apartment creation:", notifErr);
     }
 
     return res.status(201).json({
@@ -392,13 +487,87 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
 
+    // 1. Google Maps link resolution and coordinates extraction
+    let lat = bodyData.lat !== undefined ? Number(bodyData.lat) : undefined;
+    let lng = bodyData.lng !== undefined ? Number(bodyData.lng) : undefined;
+    const mapLink = bodyData.mapLink || bodyData.googleMapsLink || bodyData.locationLink;
+
+    if (mapLink) {
+      const resolved = await resolveAndExtractMapLink(mapLink);
+      if (resolved) {
+        lat = resolved.lat;
+        lng = resolved.lng;
+      } else {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "لم نتمكن من استخراج الإحداثيات من رابط الخريطة المدخل. يرجى توفير رابط Google Maps صالح أو إدخال الإحداثيات مباشرة.",
+        });
+      }
+    }
+
+    // 2. Coordinates Range Validation
+    if (lat !== undefined || lng !== undefined) {
+      if (lat === undefined || lng === undefined) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "يجب تحديد خط العرض وخط الطول معاً لتحديد الموقع.",
+        });
+      }
+
+      if (!isValidCoordinate(lat, lng)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: `الإحداثيات المدخلة غير صالحة (خط العرض: ${lat}، خط الطول: ${lng}). يجب أن يكون خط العرض بين -90 و 90، وخط الطول بين -180 و 180.`,
+        });
+      }
+    }
+
     const updatePayload: any = {
       ...result.data,
       updatedAt: new Date(),
     };
 
+    const isAdmin = dbUser.role === "admin" || dbUser.role === "super_admin";
+
+    // Handle nearbyAmenities and Mkany Admin ratings
+    if (req.body.nearbyAmenities !== undefined) {
+      if (!isAdmin) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "تعديل تقييمات وخدمات المنطقة المحيطة متاح فقط لمشرفي إدارة مكاني",
+        });
+      }
+
+      const ratingValidation = validateAmenitiesRatings(req.body.nearbyAmenities);
+      if (!ratingValidation.valid) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: ratingValidation.error || "التقييم المدخل غير صالح. تقييم مكاني يجب أن يكون بين 0 و 5 وبمضاعفات النصف نجمة (0, 0.5, 1, 1.5, ... 5).",
+        });
+      }
+
+      updatePayload.nearbyAmenities = ratingValidation.sanitized;
+
+      // Persist any rated entries into serviceRatings linked by real OSM identity (osmType, osmId)
+      for (const entry of ratingValidation.entriesToPersist) {
+        try {
+          await persistServiceRating(entry, dbUser.id);
+        } catch (persistErr) {
+          req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
+        }
+      }
+    } else if (lat !== undefined && lng !== undefined) {
+      updatePayload.lat = lat;
+      updatePayload.lng = lng;
+      try {
+        updatePayload.nearbyAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+      } catch (overpassErr) {
+        console.error("Failed to fetch amenities from Overpass during patch:", overpassErr);
+      }
+    }
+
     // If non-admin user (Owner), prevent self-verification and self-approval
-    if (dbUser.role !== "admin") {
+    if (!isAdmin) {
       if ("verified" in req.body) {
         return res.status(403).json({
           error: "Forbidden",
@@ -531,6 +700,21 @@ router.post("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
       .where(eq(apartments.id, apartmentId))
       .returning();
 
+    try {
+      if (existing.ownerId) {
+        await createNotification({
+          userId: existing.ownerId,
+          type: "owner_property_approved",
+          title: "تم اعتماد عقارك ونشره",
+          body: `تمت مراجعة عقارك "${existing.title}" واعتماده بنجاح من قبل الإدارة، وهو الآن متاح للطلاب.`,
+          referenceType: "property",
+          referenceId: String(apartmentId),
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on apartment approval:", notifErr);
+    }
+
     req.log.info({ adminId: req.dbUser!.id, apartmentId }, "Admin approved apartment for listing");
     return res.json(updated);
   } catch (error) {
@@ -564,6 +748,21 @@ router.post("/:id/reject", requireAuth, requireAdmin, async (req, res) => {
       })
       .where(eq(apartments.id, apartmentId))
       .returning();
+
+    try {
+      if (existing.ownerId) {
+        await createNotification({
+          userId: existing.ownerId,
+          type: "owner_property_rejected",
+          title: "تم رفض طلب إضافة العقار",
+          body: `تم رفض طلب إضافة عقارك "${existing.title}" بعد مراجعته من قبل الإدارة.`,
+          referenceType: "property",
+          referenceId: String(apartmentId),
+        });
+      }
+    } catch (notifErr) {
+      console.error("Failed to dispatch notifications on apartment rejection:", notifErr);
+    }
 
     req.log.info({ adminId: req.dbUser!.id, apartmentId }, "Admin rejected apartment");
     return res.json(updated);

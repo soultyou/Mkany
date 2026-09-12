@@ -29,7 +29,7 @@ import {
   LifeBuoy
 } from "lucide-react";
 import { useAuth, EGYPTIAN_UNIVERSITIES, SignInButton } from "@/components/auth/clerk-auth";
-import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl, RentPayment, getRentPaymentsApi, uploadRentReceiptApi } from "@/lib/bookings-store";
+import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl, RentPayment, getRentPaymentsApi, uploadRentReceiptApi, uploadSubscriptionReceiptApi } from "@/lib/bookings-store";
 import { getStudentFavoritesApi, removeFavoriteApi, StudentFavorite } from "@/lib/favorites-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 import { SupportCenter } from "@/components/support/SupportCenter";
@@ -967,6 +967,19 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
   const [submitting, setSubmitting] = useState(false);
   const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null);
 
+  // Subscription state
+  const [localBooking, setLocalBooking] = useState<StudentBooking>(booking);
+  const [submittingSub, setSubmittingSub] = useState(false);
+  const [subFile, setSubFile] = useState<File | null>(null);
+  const [isUploadingSub, setIsUploadingSub] = useState(false);
+
+  // Year collapsible state
+  const [collapsedYears, setCollapsedYears] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setLocalBooking(booking);
+  }, [booking]);
+
   const fetchPayments = async () => {
     setLoading(true);
     const list = await getRentPaymentsApi(booking.id);
@@ -981,6 +994,41 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
+    }
+  };
+
+  const handleSubFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSubFile(e.target.files[0]);
+    }
+  };
+
+  const handleSubUploadSubmit = async () => {
+    if (!subFile) {
+      openToast("يرجى اختيار صورة الإيصال أولاً");
+      return;
+    }
+    setSubmittingSub(true);
+    try {
+      const uploadRes = await uploadSingleImageApi(subFile);
+      if (!uploadRes || !uploadRes.url) {
+        throw new Error("فشل رفع الصورة السحابية");
+      }
+      
+      const updated = await uploadSubscriptionReceiptApi(localBooking.id, uploadRes.url);
+      if (!updated) {
+        throw new Error("فشل حفظ إيصال اشتراك مكاني");
+      }
+
+      openToast("تم رفع إيصال اشتراك مكاني بنجاح وهو قيد المراجعة الآن ✅");
+      setSubFile(null);
+      setIsUploadingSub(false);
+      setLocalBooking(updated);
+    } catch (err: any) {
+      console.error(err);
+      openToast(err.message || "حدث خطأ أثناء رفع إيصال الاشتراك");
+    } finally {
+      setSubmittingSub(false);
     }
   };
 
@@ -1015,6 +1063,19 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     }
   };
 
+  const toggleYear = (year: string) => {
+    setCollapsedYears(prev => ({
+      ...prev,
+      [year]: !prev[year]
+    }));
+  };
+
+  const getYearFromDueDate = (dueDate: string) => {
+    if (!dueDate) return "أخرى";
+    const parts = dueDate.split("-");
+    return parts[0] || "أخرى";
+  };
+
   if (loading) {
     return (
       <div className="mt-4 p-6 border border-dashed border-border rounded-2xl bg-muted/20 text-center text-xs text-muted-foreground">
@@ -1027,14 +1088,114 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
 
   if (!hasContract) {
     return (
-      <div className="mt-4 p-6 border border-dashed border-yellow-500/20 rounded-2xl bg-yellow-500/5 text-right">
+      <div className="mt-4 p-6 border border-dashed border-yellow-500/20 rounded-2xl bg-yellow-500/5 text-right space-y-4">
+        {/* Highlighted primary payment amount display card at top even before contract is ready */}
+        <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-3xl p-6 text-center space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400">المطلوب للدفع الآن لتأكيد الحجز وتوثيق العقد</h4>
+          <div className="text-3xl font-black text-amber-600 tracking-tight">
+            ١,٢٠٠ جنيه فقط
+          </div>
+          <p className="text-xs text-muted-foreground font-bold">
+            اشتراك مكاني — يُدفع مرة واحدة فقط
+          </p>
+          <div className="pt-2 border-t border-border/30 grid grid-cols-1 sm:grid-cols-3 gap-2 text-right">
+            <div className="p-2.5 bg-background/50 rounded-xl">
+              <span className="text-[10px] text-muted-foreground block">اشتراك مكاني:</span>
+              <strong className="text-amber-700 text-xs font-bold">1200 ج.م (مطلوب الآن)</strong>
+            </div>
+            <div className="p-2.5 bg-background/50 rounded-xl">
+              <span className="text-[10px] text-muted-foreground block">الإيجار الشهري:</span>
+              <strong className="text-muted-foreground text-xs font-bold font-black">غير مطلوب الآن</strong>
+            </div>
+            <div className="p-2.5 bg-background/50 rounded-xl">
+              <span className="text-[10px] text-muted-foreground block">مبلغ التأمين (الوديعة):</span>
+              <strong className="text-muted-foreground text-xs font-bold font-black">غير مطلوب الآن</strong>
+            </div>
+          </div>
+        </div>
+
         <div className="flex gap-2 items-start">
           <AlertCircle className="text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" size={16} />
           <div>
-            <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-300 font-bold">بانتظار توثيق عقد الإيجار</h4>
+            <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-300 font-bold">بانتظار توثيق عقد الإيجار من الإدارة</h4>
             <p className="text-xs text-yellow-700 dark:text-yellow-400/80 mt-1 leading-relaxed">
-              لم يتم تفعيل مدة العقد أو الدفتر المالي بعد. ستقوم الإدارة بتسجيل تفاصيل العقد (تاريخ البدء والانتهاء ومبلغ التأمين) عند تسليمك الوحدة وتوقيع العقد الفعلي.
+              لم يتم تفعيل مدة العقد أو جدول دفعات الإيجار الشهري بعد. ستقوم الإدارة بتسجيل تفاصيل العقد (تاريخ البدء والانتهاء ومبلغ التأمين وتوليد جدول الدفعات) فور استلام وتوثيق عقدك ومراجعة اشتراك مكاني.
             </p>
+          </div>
+        </div>
+
+        {/* Allow student to upload subscription receipt even before contract generation */}
+        <div className="border border-border/60 bg-background rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h5 className="text-xs font-bold text-foreground">رفع إيصال سداد اشتراك مكاني (1200 ج.م)</h5>
+            <p className="text-[11px] text-muted-foreground">يمكنك رفع الإيصال هنا لتبدأ الإدارة بمراجعة طلبك فوراً وتوثيق عقد الإيجار.</p>
+          </div>
+          <div className="shrink-0">
+            {localBooking.subscriptionReceiptUrl && (
+              <button
+                type="button"
+                onClick={() => setViewingReceiptUrl(localBooking.subscriptionReceiptUrl || null)}
+                className="text-xs text-primary hover:underline font-bold block text-left mb-2"
+              >
+                🔍 معاينة إيصال الاشتراك المرفوع
+              </button>
+            )}
+
+            {localBooking.subscriptionStatus !== "approved" && localBooking.subscriptionStatus !== "pending_review" && (
+              <div>
+                {isUploadingSub ? (
+                  <div className="flex flex-col gap-2 p-2.5 border border-dashed border-primary/30 rounded-xl bg-primary/5 text-right max-w-xs">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleSubFileChange}
+                      className="text-[10px] w-full"
+                    />
+                    {subFile && (
+                      <div className="flex gap-2 justify-end mt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSubFile(null);
+                            setIsUploadingSub(false);
+                          }}
+                          className="text-[10px] bg-background hover:bg-muted text-muted-foreground border border-border px-2 py-1 rounded-lg font-bold"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSubUploadSubmit}
+                          disabled={submittingSub}
+                          className="text-[10px] bg-primary hover:bg-primary-hover text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-1"
+                        >
+                          {submittingSub ? "جاري..." : "تأكيد وإرسال"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUploadingSub(true);
+                      setSubFile(null);
+                    }}
+                    className="text-xs bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 flex items-center gap-1.5 shadow"
+                  >
+                    <CreditCard size={13} />
+                    {localBooking.subscriptionStatus === "rejected" ? "إعادة رفع إيصال الاشتراك" : "رفع إيصال الاشتراك (1200 ج.م)"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {localBooking.subscriptionStatus === "pending_review" && (
+              <span className="bg-amber-500/10 text-amber-700 text-xs px-2.5 py-1.5 rounded-xl font-bold inline-block">⏳ الإيصال قيد المراجعة</span>
+            )}
+            {localBooking.subscriptionStatus === "approved" && (
+              <span className="bg-emerald-500/10 text-emerald-700 text-xs px-2.5 py-1.5 rounded-xl font-bold inline-block">✅ مقبول ومفعّل Pro ⭐</span>
+            )}
           </div>
         </div>
       </div>
@@ -1069,11 +1230,48 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     }
   };
 
+  // Group payments by year
+  const paymentsByYear: Record<string, RentPayment[]> = {};
+  payments.forEach(p => {
+    const year = getYearFromDueDate(p.dueDate);
+    if (!paymentsByYear[year]) {
+      paymentsByYear[year] = [];
+    }
+    paymentsByYear[year].push(p);
+  });
+
+  const sortedYears = Object.keys(paymentsByYear).sort((a, b) => b.localeCompare(a));
+
   return (
     <div className="mt-4 p-6 border border-border rounded-2xl bg-muted/10 space-y-6 text-right">
       <div className="flex items-center justify-between border-b border-border pb-3">
         <h4 className="text-base font-bold text-foreground">الدفتر المالي وعقد الإيجار الموثق 📜</h4>
         <span className="text-xs text-muted-foreground font-mono">كود الحجز: {booking.bookingCode}</span>
+      </div>
+
+      {/* HIGHLIGHTED CARD: Required Primary Display for Payment Clarity */}
+      <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-3xl p-6 text-center space-y-3 shadow-sm">
+        <h4 className="text-sm font-bold text-amber-800 dark:text-amber-400">المطلوب للدفع الآن لتأكيد الهوية وتوثيق عقد الإيجار</h4>
+        <div className="text-3xl font-black text-amber-600 tracking-tight">
+          ١,٢٠٠ جنيه فقط
+        </div>
+        <p className="text-xs text-muted-foreground font-bold">
+          اشتراك مكاني — يُدفع مرة واحدة فقط
+        </p>
+        <div className="pt-2 border-t border-border/30 grid grid-cols-1 sm:grid-cols-3 gap-2 text-right">
+          <div className="p-2.5 bg-background/50 rounded-xl">
+            <span className="text-[10px] text-muted-foreground block">اشتراك مكاني:</span>
+            <strong className="text-amber-700 text-xs font-bold">1200 ج.م (مطلوب الآن)</strong>
+          </div>
+          <div className="p-2.5 bg-background/50 rounded-xl">
+            <span className="text-[10px] text-muted-foreground block">الإيجار الشهري المتكرر:</span>
+            <strong className="text-muted-foreground text-xs font-bold">غير مطلوب في هذه الخطوة</strong>
+          </div>
+          <div className="p-2.5 bg-background/50 rounded-xl">
+            <span className="text-[10px] text-muted-foreground block">مبلغ التأمين (الوديعة):</span>
+            <strong className="text-muted-foreground text-xs font-bold">غير مطلوب في هذه الخطوة</strong>
+          </div>
+        </div>
       </div>
 
       {/* Separator / Explanation of Stages */}
@@ -1083,9 +1281,9 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
           توضيح النظام المالي لمنصة مكاني (٣ مراحل منفصلة تماماً):
         </h5>
         <ul className="list-decimal list-inside space-y-1 text-[11px] text-muted-foreground">
-          <li><strong className="text-foreground">اشتراك مكاني (1200 ج.م):</strong> رسوم توثيق العقد والخدمة وتفعيل الحساب كـ Pro (تُدفع مرة واحدة للمنصة لتفعيل العقد).</li>
+          <li><strong className="text-foreground">اشتراك مكاني (1200 ج.م):</strong> رسوم توثيق العقد والخدمة وتفعيل الحساب كـ Pro (تُدفع مرة واحدة للمنصة لتفعيل العقد والاشتراك).</li>
           <li><strong className="text-foreground">مبلغ تأمين الوحدة (الوديعة):</strong> يُدفع للمالك كضمان عند استلام السكن (مسترد بالكامل عند الإخلاء).</li>
-          <li><strong className="text-foreground">الإيجار الشهري المتكرر:</strong> يُدفع شهرياً للمالك مباشرة، ويتم توثيق ورفع إيصال كل شهر في الجدول أدناه.</li>
+          <li><strong className="text-foreground">الإيجار الشهري المتكرر:</strong> يُدفع شهرياً للمالك مباشرة، ويتم توثيق ورفع إيصال كل شهر في جدول الدفعات أدناه.</li>
         </ul>
       </div>
 
@@ -1098,19 +1296,80 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
               <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">المرحلة ١: اشتراك مكاني</span>
               <strong className="text-foreground text-sm font-extrabold">1200 جنيه</strong>
             </div>
-            <h5 className="text-xs font-bold text-foreground">رسوم التوثيق وتفعيل الحساب Pro</h5>
-            <p className="text-[11px] text-muted-foreground mt-1">يُدفع للمنصة مرة واحدة لتفعيل العقد وتأكيد الهوية كطالب Pro نشط.</p>
+            <h5 className="text-xs font-bold text-foreground">رسوم التوثيق وتفعيل حساب Pro</h5>
+            <p className="text-[11px] text-muted-foreground mt-1">يُدفع للمنصة مرة واحدة لتفعيل العقد وتأكيد الهوية كطالب Pro نشط واستلام الخدمات.</p>
           </div>
-          <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground font-bold">حالة الاشتراك:</span>
-            {booking.subscriptionStatus === "approved" ? (
-              <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مقبول ومفعّل Pro ✅</span>
-            ) : booking.subscriptionStatus === "pending_review" ? (
-              <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">قيد المراجعة</span>
-            ) : booking.subscriptionStatus === "rejected" ? (
-              <span className="bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مرفوض</span>
-            ) : (
-              <span className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">غير مدفوع</span>
+          <div className="mt-4 pt-3 border-t border-border/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground font-bold">حالة الاشتراك:</span>
+              {localBooking.subscriptionStatus === "approved" ? (
+                <span className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-bold font-black">مقبول ومفعّل Pro ✅</span>
+              ) : localBooking.subscriptionStatus === "pending_review" ? (
+                <span className="bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">قيد المراجعة</span>
+              ) : localBooking.subscriptionStatus === "rejected" ? (
+                <span className="bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">مرفوض</span>
+              ) : (
+                <span className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">غير مدفوع</span>
+              )}
+            </div>
+
+            {localBooking.subscriptionReceiptUrl && (
+              <button
+                type="button"
+                onClick={() => setViewingReceiptUrl(localBooking.subscriptionReceiptUrl || null)}
+                className="text-[10px] text-primary hover:underline font-bold text-right block"
+              >
+                🔍 معاينة إيصال الاشتراك المرفوع
+              </button>
+            )}
+
+            {localBooking.subscriptionStatus !== "approved" && localBooking.subscriptionStatus !== "pending_review" && (
+              <div className="pt-2">
+                {isUploadingSub ? (
+                  <div className="flex flex-col gap-2 p-2 border border-dashed border-primary/30 rounded-xl bg-primary/5 text-right w-full">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleSubFileChange}
+                      className="text-[10px] w-full"
+                    />
+                    {subFile && (
+                      <div className="flex gap-2 justify-end mt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSubFile(null);
+                            setIsUploadingSub(false);
+                          }}
+                          className="text-[9px] bg-background hover:bg-muted text-muted-foreground border border-border px-1.5 py-0.5 rounded font-bold"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSubUploadSubmit}
+                          disabled={submittingSub}
+                          className="text-[9px] bg-primary hover:bg-primary-hover text-white px-2 py-0.5 rounded font-bold"
+                        >
+                          {submittingSub ? "جاري..." : "تأكيد"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUploadingSub(true);
+                      setSubFile(null);
+                    }}
+                    className="w-full text-center text-[10px] bg-primary hover:bg-primary-hover text-white font-bold py-1.5 px-2.5 rounded-xl transition-all duration-150 flex items-center justify-center gap-1"
+                  >
+                    <CreditCard size={12} />
+                    {localBooking.subscriptionStatus === "rejected" ? "إعادة رفع إيصال الاشتراك" : "رفع إيصال الاشتراك (1200 ج.م)"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1177,96 +1436,132 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
         </div>
       </div>
 
-      {/* Payments list */}
-      <div className="space-y-3">
-        <h5 className="text-sm font-bold text-foreground">جدول الدفعات الشهرية وإيصالات السداد</h5>
+      {/* Collapsible Monthly Rent Calendar View by Year */}
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/40 pb-2">
+          <h5 className="text-sm font-bold text-foreground">التقويم المالي لدفعات الإيجار الشهري</h5>
+          <span className="text-xs text-muted-foreground">اضغط على السنة لمشاهدة وتوثيق جدول الدفعات الشهرية</span>
+        </div>
         
         {payments.length === 0 ? (
-          <p className="text-xs text-muted-foreground">لا توجد دفعات مسجلة بعد لهذا العقد.</p>
+          <p className="text-xs text-muted-foreground">لا توجد دفعات إيجار مسجلة بعد لهذا العقد.</p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-border bg-background">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-right">
-                <thead className="bg-muted/50 border-b border-border text-xs text-muted-foreground">
-                  <tr>
-                    <th className="p-3">الفترة الإيجارية</th>
-                    <th className="p-3">مبلغ الإيجار</th>
-                    <th className="p-3">تاريخ الاستحقاق</th>
-                    <th className="p-3">الحالة</th>
-                    <th className="p-3 text-center">الإجراء</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {payments.map((p) => (
-                    <tr key={p.id} className="hover:bg-muted/10">
-                      <td className="p-3 font-semibold">{p.billingPeriod}</td>
-                      <td className="p-3 font-bold text-primary">{p.amount} جنيه</td>
-                      <td className="p-3 text-xs font-mono">{p.dueDate}</td>
-                      <td className="p-3">{getPaymentStatusBadge(p.status)}</td>
-                      <td className="p-3">
-                        <div className="flex items-center justify-center gap-2">
-                          {p.receiptImageUrl && (
-                            <button
-                              onClick={() => setViewingReceiptUrl(p.receiptImageUrl || null)}
-                              className="text-xs bg-muted hover:bg-muted/80 text-foreground px-2.5 py-1.5 rounded-xl border border-border font-medium flex items-center gap-1"
-                            >
-                              <ImageIcon size={12} />
-                              عرض الإيصال
-                            </button>
-                          )}
+          <div className="space-y-3">
+            {sortedYears.map((year) => {
+              const yearPayments = paymentsByYear[year] || [];
+              const isCollapsed = collapsedYears[year];
+              const paidCount = yearPayments.filter(p => p.status === "paid").length;
+              const totalCount = yearPayments.length;
 
-                          {p.status !== "paid" && p.status !== "pending_review" && (
-                            <div className="w-full max-w-[200px]">
-                              {uploadingPaymentId === p.id ? (
-                                <div className="flex flex-col gap-2 p-2 border border-dashed border-primary/30 rounded-xl bg-primary/5 text-right">
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleFileChange}
-                                    className="text-xs w-full"
-                                  />
-                                  {file && (
-                                    <div className="flex gap-2 justify-end mt-1">
-                                      <button
-                                        onClick={() => {
-                                          setFile(null);
-                                          setUploadingPaymentId(null);
-                                        }}
-                                        className="text-[10px] bg-background hover:bg-muted text-muted-foreground border border-border px-2 py-1 rounded-lg font-bold"
-                                      >
-                                        إلغاء
-                                      </button>
-                                      <button
-                                        onClick={() => handleUploadSubmit(p.id)}
-                                        disabled={submitting}
-                                        className="text-[10px] bg-primary hover:bg-primary-hover text-white px-2.5 py-1 rounded-lg font-bold flex items-center gap-1"
-                                      >
-                                        {submitting ? "جاري..." : "إرسال"}
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    setUploadingPaymentId(p.id);
-                                    setFile(null);
-                                  }}
-                                  className="text-xs bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 mx-auto"
-                                >
-                                  <FileText size={12} />
-                                  رفع إيصال الشهر
-                                </button>
-                              )}
+              return (
+                <div key={year} className="border border-border/80 rounded-2xl overflow-hidden bg-background">
+                  {/* Year Header */}
+                  <button
+                    type="button"
+                    onClick={() => toggleYear(year)}
+                    className="w-full flex items-center justify-between p-4 bg-muted/30 hover:bg-muted/50 transition-colors text-right"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-sm text-foreground">سنة {year}</span>
+                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                        {paidCount} مدفوعة / {totalCount} إجمالي
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground font-bold">
+                      {isCollapsed ? "عرض الدفعات ⬇️" : "إخفاء الدفعات ⬆️"}
+                    </div>
+                  </button>
+
+                  {/* Year Content */}
+                  {!isCollapsed && (
+                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {yearPayments.map((p) => (
+                        <div key={p.id} className="border border-border/60 hover:border-primary/30 p-4 rounded-xl bg-background flex flex-col justify-between transition-all duration-200 shadow-sm hover:shadow-md">
+                          <div>
+                            <div className="flex justify-between items-start mb-2">
+                              <h6 className="font-bold text-xs text-foreground">{p.billingPeriod}</h6>
+                              {getPaymentStatusBadge(p.status)}
                             </div>
-                          )}
+                            <div className="text-xs text-muted-foreground space-y-1 mt-1">
+                              <div className="flex justify-between">
+                                <span>مبلغ الإيجار:</span>
+                                <strong className="text-primary font-bold">{p.amount} ج.م</strong>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>تاريخ الاستحقاق:</span>
+                                <span className="font-mono">{p.dueDate}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-end gap-1.5">
+                            {p.receiptImageUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingReceiptUrl(p.receiptImageUrl || null)}
+                                className="text-[11px] bg-muted hover:bg-muted/80 text-foreground px-2.5 py-1.5 rounded-lg border border-border font-bold flex items-center gap-1 shrink-0"
+                              >
+                                <ImageIcon size={12} />
+                                عرض الإيصال
+                              </button>
+                            )}
+
+                            {p.status !== "paid" && p.status !== "pending_review" && (
+                              <div className="w-full">
+                                {uploadingPaymentId === p.id ? (
+                                  <div className="flex flex-col gap-2 p-2 border border-dashed border-primary/30 rounded-lg bg-primary/5 text-right w-full">
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      onChange={handleFileChange}
+                                      className="text-[10px] w-full"
+                                    />
+                                    {file && (
+                                      <div className="flex gap-2 justify-end mt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setFile(null);
+                                            setUploadingPaymentId(null);
+                                          }}
+                                          className="text-[10px] bg-background hover:bg-muted text-muted-foreground border border-border px-2 py-1 rounded-md font-bold"
+                                        >
+                                          إلغاء
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUploadSubmit(p.id)}
+                                          disabled={submitting}
+                                          className="text-[10px] bg-primary hover:bg-primary-hover text-white px-2.5 py-1 rounded-md font-bold flex items-center gap-1"
+                                        >
+                                          {submitting ? "جاري..." : "إرسال"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setUploadingPaymentId(p.id);
+                                      setFile(null);
+                                    }}
+                                    className="text-[11px] bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 w-full justify-center transition-colors"
+                                  >
+                                    <FileText size={11} />
+                                    رفع إيصال الشهر
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -77,11 +77,12 @@ export function formatTransitTimeArabic(meters: number): string {
 
 /**
  * الحصول على مسار السير الفعلي للشوارع عبر محرك OSRM المفتوح المصدر (Open Source Routing Machine)
- * إذا تأخر السيرفر أو كان غير متاح، يتم توليد مسار شوارع ذكي يربط النقطتين بدقة.
+ * يستعلم من خادم المنصة الموثق لضمان الأمان والخصوصية وحماية الهوية الجغرافية للأفراد.
  */
-export async function getWalkingRouteBetween(
+export async function getRouteBetween(
   start: LatLngCoord,
-  end: LatLngCoord
+  end: LatLngCoord,
+  mode: "walking" | "driving"
 ): Promise<RouteCalculationResult> {
   const straightDistance = calcHaversineDistanceMeters(
     start.lat,
@@ -90,67 +91,51 @@ export async function getWalkingRouteBetween(
     end.lng
   );
 
-  // محاولة جلب المسار الفعلي من خادم OSRM المجاني المفتوح
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-    const url = `https://router.project-osrm.org/route/v1/walking/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const url = `/api/geo/route?originLat=${start.lat}&originLng=${start.lng}&destinationLat=${end.lat}&destinationLng=${end.lng}&mode=${mode}`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
 
     if (res.ok) {
       const data = await res.json();
-      if (data.code === "Ok" && data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        const routeDist = Math.round(route.distance);
-        const coords: [number, number][] = route.geometry.coordinates.map(
-          ([lng, lat]: [number, number]) => [lat, lng]
-        );
-
+      if (data.success) {
         return {
-          distanceMeters: routeDist,
-          distanceFormatted: formatDistanceArabic(routeDist),
-          walkMinutes: Math.max(1, Math.round(route.duration / 60)),
-          walkTimeFormatted: formatWalkingTimeArabic(routeDist),
-          transitMinutes: Math.max(1, Math.round(routeDist / 300)),
-          transitTimeFormatted: formatTransitTimeArabic(routeDist),
-          coordinates: coords,
+          distanceMeters: data.distanceMeters,
+          distanceFormatted: data.distanceFormatted,
+          walkMinutes: Math.max(1, Math.round(data.durationSeconds / 60)),
+          walkTimeFormatted: data.durationFormatted,
+          transitMinutes: Math.max(1, Math.round(data.durationSeconds / 60)),
+          transitTimeFormatted: data.durationFormatted,
+          coordinates: data.coordinates || [],
           isRealStreetRoute: true,
         };
       }
     }
-  } catch {
-    // خطة احتياطية في حال تعذر الاتصال بـ OSRM
+  } catch (err) {
+    console.error(`Route fetching failed for mode ${mode}:`, err);
   }
 
-  // مسار شارعي بديل (Manhattan Street path) لحساب انحناءات الشوارع الواقعية
-  const actualWalkingMeters = Math.round(straightDistance * 1.25);
-  const midLat = (start.lat + end.lat) / 2;
-  const midLng = (start.lng + end.lng) / 2;
-
-  // إحداثيات انحناء زاوية الشارع
-  const streetCorner1: [number, number] = [start.lat, midLng];
-  const streetCorner2: [number, number] = [midLat, end.lng];
-
-  const fallbackCoords: [number, number][] = [
-    [start.lat, start.lng],
-    streetCorner1,
-    [midLat, midLng],
-    streetCorner2,
-    [end.lat, end.lng],
-  ];
-
+  // Fallback safe: Return a structured error response with geographic distance as fallback without inventing travel times
   return {
-    distanceMeters: actualWalkingMeters,
-    distanceFormatted: formatDistanceArabic(actualWalkingMeters),
-    walkMinutes: Math.max(1, Math.round(actualWalkingMeters / 80)),
-    walkTimeFormatted: formatWalkingTimeArabic(actualWalkingMeters),
-    transitMinutes: Math.max(1, Math.round(actualWalkingMeters / 300)),
-    transitTimeFormatted: formatTransitTimeArabic(actualWalkingMeters),
-    coordinates: fallbackCoords,
+    distanceMeters: straightDistance,
+    distanceFormatted: formatDistanceArabic(straightDistance),
+    walkMinutes: 0,
+    walkTimeFormatted: mode === "walking" ? "تعذر حساب مسار المشي" : "تعذر حساب مسار السيارة",
+    transitMinutes: 0,
+    transitTimeFormatted: mode === "walking" ? "تعذر حساب مسار المشي" : "تعذر حساب مسار السيارة",
+    coordinates: [[start.lat, start.lng], [end.lat, end.lng]],
     isRealStreetRoute: false,
   };
+}
+
+export async function getWalkingRouteBetween(
+  start: LatLngCoord,
+  end: LatLngCoord
+): Promise<RouteCalculationResult> {
+  return getRouteBetween(start, end, "walking");
 }
 
 /**
