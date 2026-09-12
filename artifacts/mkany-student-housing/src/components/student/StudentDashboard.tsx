@@ -1018,12 +1018,12 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     setSubmittingSub(true);
     try {
       const uploadRes = await uploadPrivateReceiptApi(subFile);
-      const receiptPathOrUrl = uploadRes.url || uploadRes.path;
-      if (!uploadRes || !receiptPathOrUrl) {
+      const receiptPath = uploadRes.path;
+      if (!uploadRes || !receiptPath) {
         throw new Error("فشل رفع إيصال الاشتراك إلى التخزين الخاص المشفر");
       }
       
-      const updated = await uploadSubscriptionReceiptApi(localBooking.id, receiptPathOrUrl);
+      const updated = await uploadSubscriptionReceiptApi(localBooking.id, receiptPath);
       if (!updated) {
         throw new Error("فشل حفظ إيصال اشتراك مكاني");
       }
@@ -1049,13 +1049,13 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     try {
       // 1. Upload file securely to private bucket
       const uploadRes = await uploadPrivateReceiptApi(file);
-      const receiptPathOrUrl = uploadRes.url || uploadRes.path;
-      if (!uploadRes || !receiptPathOrUrl) {
+      const receiptPath = uploadRes.path;
+      if (!uploadRes || !receiptPath) {
         throw new Error("فشل رفع الإيصال للتخزين الخاص المشفر");
       }
       
       // 2. Save receipt record in database
-      const updated = await uploadRentReceiptApi(booking.id, paymentId, receiptPathOrUrl);
+      const updated = await uploadRentReceiptApi(booking.id, paymentId, receiptPath);
       if (!updated) {
         throw new Error("فشل حفظ إيصال الدفع");
       }

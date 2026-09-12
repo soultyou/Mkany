@@ -1,11 +1,90 @@
 import { Router, type Request, type Response } from "express";
 import { db, bookings, apartments, rentPayments, users } from "@workspace/db";
-import { eq, inArray, desc, and, or } from "drizzle-orm";
+import { eq, inArray, desc, and, or, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { ensureSeedApartments } from "../lib/seed-apartments";
 import { createNotification } from "../lib/notifications-helper";
+import { getPrivateFileSignedUrl } from "../lib/supabase-storage";
 
 const router = Router();
+
+/**
+ * Validates that an incoming receipt URL/path is a valid private storage path in mkany-private-files
+ * and rejects arbitrary external http(s) URLs or public property image URLs.
+ * Also enforces authorization so a student cannot submit another user's receipt path.
+ */
+export async function validatePrivateReceiptPath(
+  rawPath: string | null | undefined,
+  studentId?: string
+): Promise<{ isValid: boolean; cleanPath?: string; errorMessage?: string }> {
+  if (!rawPath || typeof rawPath !== "string" || !rawPath.trim()) {
+    return { isValid: false, errorMessage: "صورة أو مسار إيصال الدفع مطلوب لإتمام الطلب" };
+  }
+  const trimmed = rawPath.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return { 
+      isValid: false, 
+      errorMessage: "إيصال الدفع يجب أن يكون مساراً محميًا في التخزين الخاص وليس رابطاً خارجياً عاماً" 
+    };
+  }
+  if (trimmed.includes("mkany-property-images") || trimmed.includes("properties/")) {
+    return { 
+      isValid: false, 
+      errorMessage: "إيصال الدفع يجب أن يكون مستنداً محميًا في التخزين الخاص وليس صورة عقار عامة" 
+    };
+  }
+
+  const cleanPath = trimmed.replace(/^\/+/, "").replace(/\.\.+/g, "");
+  
+  if (!cleanPath.startsWith("receipts/") && !cleanPath.startsWith("verification/") && !cleanPath.startsWith("private_documents/")) {
+    return { 
+      isValid: false, 
+      errorMessage: "مسار إيصال الدفع غير صالح في التخزين الخاص المشفر" 
+    };
+  }
+
+  // Verify file actually exists in Supabase private bucket (mkany-private-files)
+  const signedUrl = await getPrivateFileSignedUrl(cleanPath, 60);
+  if (!signedUrl) {
+    return { 
+      isValid: false, 
+      errorMessage: "تعذر التثبت من وجود ملف الإيصال المرفق في التخزين الخاص المشفر (mkany-private-files)" 
+    };
+  }
+
+  // Enforce cross-user receipt authorization if studentId is supplied
+  if (studentId) {
+    const [existingBooking, existingPayment, existingUser] = await Promise.all([
+      db.query.bookings.findFirst({
+        where: and(
+          or(eq(bookings.receiptImageUrl, cleanPath), eq(bookings.subscriptionReceiptUrl, cleanPath)),
+          ne(bookings.studentId, studentId)
+        ),
+      }),
+      db.query.rentPayments.findFirst({
+        where: eq(rentPayments.receiptImageUrl, cleanPath),
+        with: { booking: true },
+      }),
+      db.query.users.findFirst({
+        where: and(
+          eq(users.subscriptionReceiptUrl, cleanPath),
+          ne(users.id, studentId)
+        ),
+      }),
+    ]);
+
+    const existingPaymentOtherUser = existingPayment && existingPayment.booking && existingPayment.booking.studentId !== studentId;
+
+    if (existingBooking || existingPaymentOtherUser || existingUser) {
+      return {
+        isValid: false,
+        errorMessage: "غير مصرح لك برفق أو استخدام مسار إيصال خاص بمستخدم آخر",
+      };
+    }
+  }
+
+  return { isValid: true, cleanPath };
+}
 
 function formatPrivateUrl(urlOrPath: string | null | undefined): string | null {
   if (!urlOrPath) return null;
@@ -220,11 +299,13 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       return;
     }
 
-    // Validate receipt screenshot / URL
-    if (!receiptImageUrl || typeof receiptImageUrl !== "string" || !receiptImageUrl.trim()) {
-      res.status(400).json({ error: "Bad Request", message: "صورة أو رابط إيصال التحويل مطلوب لإتمام طلب الحجز" });
+    // Validate receipt screenshot / private storage path
+    const validation = await validatePrivateReceiptPath(receiptImageUrl, studentId);
+    if (!validation.isValid || !validation.cleanPath) {
+      res.status(400).json({ error: "Bad Request", message: validation.errorMessage || "صورة أو مسار إيصال التحويل غير صالح" });
       return;
     }
+    const cleanReceiptPath = validation.cleanPath;
 
     // Check for existing pending booking for the same student and property to prevent duplicates
     const existingPending = await db.query.bookings.findFirst({
@@ -261,7 +342,7 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       studentId,
       paymentMethod: finalPaymentMethod,
       paymentAmount: finalPaymentAmount,
-      receiptImageUrl: receiptImageUrl.trim(),
+      receiptImageUrl: cleanReceiptPath,
       senderPhone: typeof senderPhone === "string" && senderPhone.trim() ? senderPhone.trim() : (req.dbUser!.phoneNumber || null),
       referenceNumber: typeof referenceNumber === "string" && referenceNumber.trim() ? referenceNumber.trim() : null,
       appointmentDate: typeof appointmentDate === "string" && appointmentDate.trim() ? appointmentDate.trim() : null,
@@ -269,7 +350,7 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       status: "pending_review",
       subscriptionStatus: "pending_review",
       subscriptionAmount: 1200,
-      subscriptionReceiptUrl: receiptImageUrl.trim(),
+      subscriptionReceiptUrl: cleanReceiptPath,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
@@ -279,7 +360,7 @@ router.post("/", requireAuth, requireRole(["student"]), async (req: Request, res
       .set({
         subscriptionStatus: "pending_review",
         subscriptionAmount: 1200,
-        subscriptionReceiptUrl: receiptImageUrl.trim(),
+        subscriptionReceiptUrl: cleanReceiptPath,
         updatedAt: new Date()
       })
       .where(eq(users.id, studentId));
@@ -1074,12 +1155,14 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
   try {
     const { bookingId, paymentId } = req.params;
     const { receiptImageUrl } = req.body;
-    const userId = (req as any).user?.id;
+    const userId = req.dbUser!.id;
 
-    if (!receiptImageUrl) {
-      res.status(400).json({ error: "Bad Request", message: "يرجى إرفاق صورة الإيصال" });
+    const validation = await validatePrivateReceiptPath(receiptImageUrl, userId);
+    if (!validation.isValid || !validation.cleanPath) {
+      res.status(400).json({ error: "Bad Request", message: validation.errorMessage || "إيصال الدفع غير صالح" });
       return;
     }
+    const cleanReceiptPath = validation.cleanPath;
 
     const booking = await db.query.bookings.findFirst({
       where: eq(bookings.id, String(bookingId)),
@@ -1111,7 +1194,7 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
     await db.update(rentPayments)
       .set({
         status: "pending_review",
-        receiptImageUrl,
+        receiptImageUrl: cleanReceiptPath,
         paymentSource: "student_upload",
         updatedAt: new Date(),
       })
@@ -1159,12 +1242,14 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
   try {
     const { bookingId } = req.params;
     const { receiptImageUrl } = req.body;
-    const userId = (req as any).user?.id;
+    const userId = req.dbUser!.id;
 
-    if (!receiptImageUrl) {
-      res.status(400).json({ error: "Bad Request", message: "يرجى إرفاق صورة الإيصال" });
+    const validation = await validatePrivateReceiptPath(receiptImageUrl, userId);
+    if (!validation.isValid || !validation.cleanPath) {
+      res.status(400).json({ error: "Bad Request", message: validation.errorMessage || "إيصال الاشتراك غير صالح" });
       return;
     }
+    const cleanReceiptPath = validation.cleanPath;
 
     const booking = await db.query.bookings.findFirst({
       where: eq(bookings.id, String(bookingId)),
@@ -1186,7 +1271,7 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
       .set({
         subscriptionStatus: "pending_review",
         subscriptionAmount: 1200,
-        subscriptionReceiptUrl: receiptImageUrl,
+        subscriptionReceiptUrl: cleanReceiptPath,
         updatedAt: new Date(),
       })
       .where(eq(bookings.id, String(bookingId)));
@@ -1196,7 +1281,7 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
       .set({
         subscriptionStatus: "pending_review",
         subscriptionAmount: 1200,
-        subscriptionReceiptUrl: receiptImageUrl,
+        subscriptionReceiptUrl: cleanReceiptPath,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));

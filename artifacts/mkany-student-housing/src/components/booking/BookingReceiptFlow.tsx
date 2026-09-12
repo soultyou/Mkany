@@ -78,7 +78,8 @@ export function BookingReceiptFlow({
     initialAppointmentDate || property.availableFrom || "الإثنين، ١٥ سبتمبر ٢٠٢٤"
   );
   const [appointmentTime, setAppointmentTime] = useState("الساعة ٢:٠٠ ظهراً");
-  const [receiptImageUrl, setReceiptImageUrl] = useState<string>(SAMPLE_RECEIPT_PRESETS[0].url);
+  const [receiptPath, setReceiptPath] = useState<string>("");
+  const [previewUrl, setPreviewUrl] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -102,11 +103,12 @@ export function BookingReceiptFlow({
     setIsUploading(true);
     try {
       const res = await uploadPrivateReceiptApi(file);
-      if (res && (res.url || res.path)) {
-        setReceiptImageUrl(res.url || res.path);
+      if (res && res.path) {
+        setReceiptPath(res.path);
+        setPreviewUrl(res.url || `/api/upload/private/view?path=${encodeURIComponent(res.path)}`);
         openToast("تم رفع سكرين شات الإيصال بأمان إلى التخزين الخاص!");
       } else {
-        throw new Error("لم يتم إرجاع رابط أو مسار الملف من خادم التخزين المشفر");
+        throw new Error("لم يتم إرجاع مسار الملف من خادم التخزين المشفر");
       }
     } catch (err: any) {
       console.error("Upload receipt failed:", err);
@@ -116,12 +118,35 @@ export function BookingReceiptFlow({
     }
   };
 
+  // معالجة اختيار عينة تجريبية ونقلها للتخزين الخاص المشفر
+  const handleSelectPreset = async (preset: { name: string; url: string }) => {
+    setIsUploading(true);
+    try {
+      const fetchRes = await fetch(preset.url);
+      const blob = await fetchRes.blob();
+      const sampleFile = new File([blob], `sample_${Date.now()}.jpg`, { type: blob.type || "image/jpeg" });
+      const res = await uploadPrivateReceiptApi(sampleFile);
+      if (res && res.path) {
+        setReceiptPath(res.path);
+        setPreviewUrl(res.url || `/api/upload/private/view?path=${encodeURIComponent(res.path)}`);
+        openToast(`تم اختيار ونقل: ${preset.name} للتخزين الخاص المشفر!`);
+      } else {
+        throw new Error("فشل تحويل العينة للتخزين الخاص");
+      }
+    } catch (err: any) {
+      console.error("Failed to select preset:", err);
+      openToast("تعذر تحميل نموذج الإيصال، يرجى اختيار ملف من جهازك");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // تأكيد رفع الإيصال والتوجيه التلقائي إلى واتساب
   const handleSubmitBookingAndReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!receiptImageUrl) {
-      openToast("يرجى إرفاق أو رفع سكرين شات إيصال الدفع");
+    if (!receiptPath) {
+      openToast("يرجى إرفاق أو رفع سكرين شات إيصال الدفع أولاً");
       return;
     }
 
@@ -132,7 +157,7 @@ export function BookingReceiptFlow({
         propertyId: property.id,
         paymentMethod,
         paymentAmount: 1200,
-        receiptImageUrl,
+        receiptImageUrl: receiptPath,
         senderPhone,
         referenceNumber: referenceNumber || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
         appointmentDate,
@@ -562,10 +587,10 @@ export function BookingReceiptFlow({
               </label>
 
               <div className="rounded-2xl border-2 border-dashed border-border bg-muted/20 p-4 text-center">
-                {receiptImageUrl ? (
+                {previewUrl ? (
                   <div className="relative mx-auto max-w-xs">
                     <img
-                      src={receiptImageUrl}
+                      src={previewUrl}
                       alt="إيصال الدفع"
                       className="max-h-48 w-full rounded-xl object-contain border border-border bg-background"
                     />
@@ -606,11 +631,9 @@ export function BookingReceiptFlow({
                   <button
                     key={preset.name}
                     type="button"
-                    onClick={() => {
-                      setReceiptImageUrl(preset.url);
-                      openToast(`تم اختيار: ${preset.name}`);
-                    }}
-                    className="rounded-lg border border-border bg-background px-2 py-1 text-primary hover:border-primary"
+                    disabled={isUploading}
+                    onClick={() => handleSelectPreset(preset)}
+                    className="rounded-lg border border-border bg-background px-2 py-1 text-primary hover:border-primary disabled:opacity-50"
                   >
                     {preset.name}
                   </button>
