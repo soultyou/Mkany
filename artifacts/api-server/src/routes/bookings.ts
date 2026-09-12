@@ -7,6 +7,14 @@ import { createNotification } from "../lib/notifications-helper";
 
 const router = Router();
 
+function formatPrivateUrl(urlOrPath: string | null | undefined): string | null {
+  if (!urlOrPath) return null;
+  if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://") || urlOrPath.startsWith("/api/upload/private/view")) {
+    return urlOrPath;
+  }
+  return `/api/upload/private/view?path=${encodeURIComponent(urlOrPath)}`;
+}
+
 /**
  * Format booking for Student and Admin views (full details including relations)
  */
@@ -23,6 +31,13 @@ function formatBooking(b: any) {
       contractDurationMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
     }
   }
+
+  const formattedRentPayments = Array.isArray(b.rentPayments)
+    ? b.rentPayments.map((p: any) => ({
+        ...p,
+        receiptImageUrl: formatPrivateUrl(p.receiptImageUrl),
+      }))
+    : [];
 
   return {
     id: b.id,
@@ -41,7 +56,7 @@ function formatBooking(b: any) {
     studentEmail: b.student?.email || "",
     paymentMethod: b.paymentMethod,
     paymentAmount: b.paymentAmount,
-    receiptImageUrl: b.receiptImageUrl,
+    receiptImageUrl: formatPrivateUrl(b.receiptImageUrl),
     senderPhone: b.senderPhone,
     referenceNumber: b.referenceNumber,
     status: b.status,
@@ -58,14 +73,14 @@ function formatBooking(b: any) {
     handoverDate: b.handoverDate,
     subscriptionStatus: b.subscriptionStatus || "unpaid",
     subscriptionAmount: b.subscriptionAmount || 1200,
-    subscriptionReceiptUrl: b.subscriptionReceiptUrl || b.receiptImageUrl,
+    subscriptionReceiptUrl: formatPrivateUrl(b.subscriptionReceiptUrl || b.receiptImageUrl),
     subscriptionApprovedAt: b.subscriptionApprovedAt,
     subscriptionApprovedBy: b.subscriptionApprovedBy,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
     property: b.property,
     student: b.student,
-    rentPayments: b.rentPayments || [],
+    rentPayments: formattedRentPayments,
   };
 }
 

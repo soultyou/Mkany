@@ -22,7 +22,7 @@ import {
 import { useAuth } from "@/components/auth/clerk-auth";
 import { createBookingApi, buildWhatsAppBookingUrl } from "@/lib/bookings-store";
 import { StandardModal } from "@/components/ui/StandardModal";
-import { uploadSingleImageApi } from "@/lib/api-client";
+import { uploadPrivateReceiptApi } from "@/lib/api-client";
 
 interface BookingReceiptFlowProps {
   property: {
@@ -101,12 +101,12 @@ export function BookingReceiptFlow({
 
     setIsUploading(true);
     try {
-      const res = await uploadSingleImageApi(file);
-      if (res && res.url) {
-        setReceiptImageUrl(res.url);
-        openToast("تم رفع سكرين شات الإيصال بنجاح!");
+      const res = await uploadPrivateReceiptApi(file);
+      if (res && (res.url || res.path)) {
+        setReceiptImageUrl(res.url || res.path);
+        openToast("تم رفع سكرين شات الإيصال بأمان إلى التخزين الخاص!");
       } else {
-        throw new Error("لم يتم إرجاع رابط الصورة من خادم التخزين");
+        throw new Error("لم يتم إرجاع رابط أو مسار الملف من خادم التخزين المشفر");
       }
     } catch (err: any) {
       console.error("Upload receipt failed:", err);

@@ -93,6 +93,22 @@ export async function uploadMultipleImagesApi(files: File[]): Promise<{ urls: st
   });
 }
 
+export async function uploadPrivateReceiptApi(file: File): Promise<{ url: string; path: string; filename: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return apiFetch("/api/upload/private/receipt", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getPrivateFileUrlApi(path: string): Promise<{ url: string; path: string }> {
+  return apiFetch(`/api/upload/private/url?path=${encodeURIComponent(path)}`, {
+    method: "GET",
+  });
+}
+
 // ==========================================
 // Inspections API
 // ==========================================

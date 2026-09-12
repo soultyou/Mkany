@@ -33,7 +33,7 @@ import { getStudentBookingsApi, StudentBooking, buildWhatsAppBookingUrl, RentPay
 import { getStudentFavoritesApi, removeFavoriteApi, StudentFavorite } from "@/lib/favorites-store";
 import { StandardModal } from "@/components/ui/StandardModal";
 import { SupportCenter } from "@/components/support/SupportCenter";
-import { uploadSingleImageApi } from "@/lib/api-client";
+import { uploadSingleImageApi, uploadPrivateReceiptApi } from "@/lib/api-client";
 
 interface StudentDashboardProps {
   openToast: (msg: string) => void;
@@ -1017,17 +1017,18 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     }
     setSubmittingSub(true);
     try {
-      const uploadRes = await uploadSingleImageApi(subFile);
-      if (!uploadRes || !uploadRes.url) {
-        throw new Error("فشل رفع الصورة السحابية");
+      const uploadRes = await uploadPrivateReceiptApi(subFile);
+      const receiptPathOrUrl = uploadRes.url || uploadRes.path;
+      if (!uploadRes || !receiptPathOrUrl) {
+        throw new Error("فشل رفع إيصال الاشتراك إلى التخزين الخاص المشفر");
       }
       
-      const updated = await uploadSubscriptionReceiptApi(localBooking.id, uploadRes.url);
+      const updated = await uploadSubscriptionReceiptApi(localBooking.id, receiptPathOrUrl);
       if (!updated) {
         throw new Error("فشل حفظ إيصال اشتراك مكاني");
       }
 
-      openToast("تم رفع إيصال اشتراك مكاني بنجاح وهو قيد المراجعة الآن ✅");
+      openToast("تم رفع إيصال اشتراك مكاني بأمان وهو قيد المراجعة الآن ✅");
       setSubFile(null);
       setIsUploadingSub(false);
       setLocalBooking(updated);
@@ -1046,19 +1047,20 @@ export function BookingRentLedger({ booking, openToast }: BookingRentLedgerProps
     }
     setSubmitting(true);
     try {
-      // 1. Upload file to storage
-      const uploadRes = await uploadSingleImageApi(file);
-      if (!uploadRes || !uploadRes.url) {
-        throw new Error("فشل رفع الصورة السحابية");
+      // 1. Upload file securely to private bucket
+      const uploadRes = await uploadPrivateReceiptApi(file);
+      const receiptPathOrUrl = uploadRes.url || uploadRes.path;
+      if (!uploadRes || !receiptPathOrUrl) {
+        throw new Error("فشل رفع الإيصال للتخزين الخاص المشفر");
       }
       
       // 2. Save receipt record in database
-      const updated = await uploadRentReceiptApi(booking.id, paymentId, uploadRes.url);
+      const updated = await uploadRentReceiptApi(booking.id, paymentId, receiptPathOrUrl);
       if (!updated) {
         throw new Error("فشل حفظ إيصال الدفع");
       }
 
-      openToast("تم رفع الإيصال بنجاح وهو قيد المراجعة الآن");
+      openToast("تم رفع الإيصال بأمان إلى التخزين الخاص وهو قيد المراجعة الآن");
       setFile(null);
       setUploadingPaymentId(null);
       fetchPayments();
