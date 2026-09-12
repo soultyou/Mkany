@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db, users } from "@workspace/db";
 import { eq, or, ilike, and, desc, ne } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireSuperAdmin } from "../middlewares/auth";
+import { createNotification } from "../lib/notifications-helper";
 
 const usersRouter = Router();
 
@@ -162,6 +163,30 @@ usersRouter.patch("/:id/verification", requireAuth, requireAdmin, async (req: Re
       { adminId: req.dbUser!.id, targetUserId: existingUser.id, newIsVerified: isVerified },
       "Admin updated user account verification status"
     );
+
+    try {
+      if (isVerified) {
+        await createNotification({
+          userId: existingUser.id,
+          type: "user_verified",
+          title: "تم قبول التحقق",
+          body: "تم قبول التحقق من حسابك بنجاح.",
+          referenceType: "user",
+          referenceId: existingUser.id,
+        });
+      } else {
+        await createNotification({
+          userId: existingUser.id,
+          type: "user_unverified",
+          title: "تم رفض التحقق",
+          body: "تم رفض طلب التحقق. يرجى مراجعة بيانات التحقق أو التواصل مع الدعم.",
+          referenceType: "user",
+          referenceId: existingUser.id,
+        });
+      }
+    } catch (notifErr) {
+      req.log.warn({ notifErr, targetUserId: existingUser.id }, "Failed to send verification status notification");
+    }
 
     return res.json(updatedUser);
   } catch (error) {

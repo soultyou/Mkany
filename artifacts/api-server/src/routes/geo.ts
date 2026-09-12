@@ -161,7 +161,7 @@ router.get("/route", async (req: Request, res: Response) => {
         clearTimeout(timeoutId);
 
         if (response.ok) {
-          const data = await response.json();
+          const data = (await response.json()) as any;
           if (data.code === "Ok" && data.routes && data.routes.length > 0) {
             routeData = data.routes[0];
             break;

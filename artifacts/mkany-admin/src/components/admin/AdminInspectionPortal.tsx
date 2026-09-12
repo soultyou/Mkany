@@ -98,6 +98,7 @@ import {
 } from "@/lib/bookings-store";
 import { useAuth } from "@/components/auth/clerk-auth";
 import { StandardModal } from "@/components/ui/StandardModal";
+import { NotificationBell } from "@/components/ui/NotificationBell";
 
 function isPermanentSuperAdmin(email: string | null | undefined): boolean {
   if (!email) return false;
@@ -184,7 +185,7 @@ export function AdminInspectionPortal({
   const totalUsers = usersList.length;
   const studentUsers = usersList.filter((u) => u.role === "student").length;
   const ownerUsers = usersList.filter((u) => u.role === "owner").length;
-  const adminUsers = usersList.filter((u) => u.role === "admin").length;
+  const adminUsers = usersList.filter((u) => u.role === "admin" || u.role === "super_admin").length;
   const verifiedUsers = usersList.filter((u) => Boolean(u.isVerified)).length;
   const pendingVerificationUsers = usersList.filter(
     (u) => !u.isVerified && Boolean(u.nationalId && u.nationalId.length === 14)
@@ -543,6 +544,7 @@ export function AdminInspectionPortal({
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <button
               onClick={() => {
                 onClose();

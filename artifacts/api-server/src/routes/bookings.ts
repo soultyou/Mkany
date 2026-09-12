@@ -864,7 +864,7 @@ router.get("/:bookingId/rent-payments", requireAuth, async (req: Request, res: R
     const userId = (req as any).user?.id;
 
     const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.id, bookingId),
+      where: eq(bookings.id, String(bookingId)),
     });
 
     if (!booking) {
@@ -884,7 +884,7 @@ router.get("/:bookingId/rent-payments", requireAuth, async (req: Request, res: R
     }
 
     const payments = await db.query.rentPayments.findMany({
-      where: eq(rentPayments.bookingId, bookingId),
+      where: eq(rentPayments.bookingId, String(bookingId)),
       orderBy: [desc(rentPayments.dueDate)],
     });
 
@@ -905,7 +905,7 @@ router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"])
     const { contractStartDate, contractEndDate, depositAmount, depositStatus, handoverStatus, handoverDate, subscriptionStatus } = req.body;
 
     const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.id, id),
+      where: eq(bookings.id, String(id)),
       with: { property: true },
     });
 
@@ -953,7 +953,7 @@ router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"])
     }
 
     // Update the booking record
-    await db.update(bookings).set(updateData).where(eq(bookings.id, id));
+    await db.update(bookings).set(updateData).where(eq(bookings.id, String(id)));
 
     // Synchronize Student's user-level subscriptionStatus (Pro activation)
     const finalSubscriptionStatus = subscriptionStatus || booking.subscriptionStatus;
@@ -1015,17 +1015,17 @@ router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"])
         }
 
         const existingPayments = await db.query.rentPayments.findMany({
-          where: eq(rentPayments.bookingId, id),
+          where: eq(rentPayments.bookingId, String(id)),
         });
 
         const paidPeriods = new Set(
-          existingPayments.filter(p => p.status === "paid").map(p => p.billingPeriod)
+          existingPayments.filter((p: any) => p.status === "paid").map((p: any) => p.billingPeriod)
         );
 
         // Clear unpaid ones
         await db.delete(rentPayments)
           .where(and(
-            eq(rentPayments.bookingId, id),
+            eq(rentPayments.bookingId, String(id)),
             inArray(rentPayments.status, ["due", "pending_review", "rejected", "overdue"])
           ));
 
@@ -1040,7 +1040,7 @@ router.patch("/:id/contract", requireAuth, requireRole(["admin", "super_admin"])
     }
 
     const updated = await db.query.bookings.findFirst({
-      where: eq(bookings.id, id),
+      where: eq(bookings.id, String(id)),
       with: { property: true, student: true, rentPayments: true },
     });
 
@@ -1067,7 +1067,7 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
     }
 
     const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.id, bookingId),
+      where: eq(bookings.id, String(bookingId)),
     });
 
     if (!booking) {
@@ -1083,8 +1083,8 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
 
     const payment = await db.query.rentPayments.findFirst({
       where: and(
-        eq(rentPayments.id, paymentId),
-        eq(rentPayments.bookingId, bookingId)
+        eq(rentPayments.id, String(paymentId)),
+        eq(rentPayments.bookingId, String(bookingId))
       ),
     });
 
@@ -1100,10 +1100,10 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
         paymentSource: "student_upload",
         updatedAt: new Date(),
       })
-      .where(eq(rentPayments.id, paymentId));
+      .where(eq(rentPayments.id, String(paymentId)));
 
     const updatedPayment = await db.query.rentPayments.findFirst({
-      where: eq(rentPayments.id, paymentId),
+      where: eq(rentPayments.id, String(paymentId)),
     });
 
     try {
@@ -1114,7 +1114,7 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
         title: "تم استلام إيصال الإيجار",
         body: `تم استلام إيصال الإيجار بنجاح لشهر ${updatedPayment?.billingPeriod || ''} وجاري التحقق منه من الإدارة.`,
         referenceType: "booking",
-        referenceId: bookingId,
+        referenceId: String(bookingId),
       });
 
       await createNotification({
@@ -1123,7 +1123,7 @@ router.post("/:bookingId/rent-payments/:paymentId/upload-receipt", requireAuth, 
         title: "إيصال إيجار جديد يحتاج للمراجعة",
         body: `قام الطالب برفع إيصال دفع إيجار لشهر ${updatedPayment?.billingPeriod || ''} للوحدة السكنية للمراجعة.`,
         referenceType: "booking",
-        referenceId: bookingId,
+        referenceId: String(bookingId),
       });
     } catch (notifErr) {
       console.error("Failed to dispatch notifications on rent payment upload:", notifErr);
@@ -1152,7 +1152,7 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
     }
 
     const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.id, bookingId),
+      where: eq(bookings.id, String(bookingId)),
     });
 
     if (!booking) {
@@ -1174,7 +1174,7 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
         subscriptionReceiptUrl: receiptImageUrl,
         updatedAt: new Date(),
       })
-      .where(eq(bookings.id, bookingId));
+      .where(eq(bookings.id, String(bookingId)));
 
     // Also sync to user record
     await db.update(users)
@@ -1193,7 +1193,7 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
         title: "تم استلام إيصال الاشتراك",
         body: "تم استلام إيصال إعادة رفع اشتراك مكاني بقيمة 1200 ج.م وجاري التحقق منه.",
         referenceType: "booking",
-        referenceId: bookingId,
+        referenceId: String(bookingId),
       });
 
       await createNotification({
@@ -1202,14 +1202,14 @@ router.post("/:bookingId/subscription/upload", requireAuth, requireRole(["studen
         title: "إيصال اشتراك جديد يحتاج إلى المراجعة",
         body: "تم إعادة رفع إيصال اشتراك جديد بقيمة 1200 ج.م للمراجعة والاعتماد.",
         referenceType: "booking",
-        referenceId: bookingId,
+        referenceId: String(bookingId),
       });
     } catch (notifErr) {
       console.error("Failed to dispatch notifications on subscription re-upload:", notifErr);
     }
 
     const updated = await db.query.bookings.findFirst({
-      where: eq(bookings.id, bookingId),
+      where: eq(bookings.id, String(bookingId)),
       with: { property: true, student: true, rentPayments: true },
     });
 
@@ -1231,8 +1231,8 @@ router.post("/:bookingId/rent-payments/:paymentId/approve", requireAuth, require
 
     const payment = await db.query.rentPayments.findFirst({
       where: and(
-        eq(rentPayments.id, paymentId),
-        eq(rentPayments.bookingId, bookingId)
+        eq(rentPayments.id, String(paymentId)),
+        eq(rentPayments.bookingId, String(bookingId))
       ),
     });
 
@@ -1249,15 +1249,15 @@ router.post("/:bookingId/rent-payments/:paymentId/approve", requireAuth, require
         approvedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(rentPayments.id, paymentId));
+      .where(eq(rentPayments.id, String(paymentId)));
 
     const updatedPayment = await db.query.rentPayments.findFirst({
-      where: eq(rentPayments.id, paymentId),
+      where: eq(rentPayments.id, String(paymentId)),
     });
 
     try {
       const booking = await db.query.bookings.findFirst({
-        where: eq(bookings.id, bookingId),
+        where: eq(bookings.id, String(bookingId)),
       });
       if (booking) {
         await createNotification({
@@ -1266,7 +1266,7 @@ router.post("/:bookingId/rent-payments/:paymentId/approve", requireAuth, require
           title: "تم اعتماد إيصال الإيجار",
           body: `تم التحقق من إيصال دفع الإيجار الخاص بك واعتماده بنجاح لشهر ${updatedPayment?.billingPeriod || ''}.`,
           referenceType: "booking",
-          referenceId: bookingId,
+          referenceId: String(bookingId),
         });
       }
     } catch (notifErr) {
@@ -1290,8 +1290,8 @@ router.post("/:bookingId/rent-payments/:paymentId/reject", requireAuth, requireR
 
     const payment = await db.query.rentPayments.findFirst({
       where: and(
-        eq(rentPayments.id, paymentId),
-        eq(rentPayments.bookingId, bookingId)
+        eq(rentPayments.id, String(paymentId)),
+        eq(rentPayments.bookingId, String(bookingId))
       ),
     });
 
@@ -1305,15 +1305,15 @@ router.post("/:bookingId/rent-payments/:paymentId/reject", requireAuth, requireR
         status: "rejected",
         updatedAt: new Date(),
       })
-      .where(eq(rentPayments.id, paymentId));
+      .where(eq(rentPayments.id, String(paymentId)));
 
     const updatedPayment = await db.query.rentPayments.findFirst({
-      where: eq(rentPayments.id, paymentId),
+      where: eq(rentPayments.id, String(paymentId)),
     });
 
     try {
       const booking = await db.query.bookings.findFirst({
-        where: eq(bookings.id, bookingId),
+        where: eq(bookings.id, String(bookingId)),
       });
       if (booking) {
         await createNotification({
@@ -1322,7 +1322,7 @@ router.post("/:bookingId/rent-payments/:paymentId/reject", requireAuth, requireR
           title: "تم رفض إيصال الإيجار",
           body: `عذراً، تم رفض إيصال دفع الإيجار الخاص بك لشهر ${updatedPayment?.billingPeriod || ''}. يرجى مراجعة التفاصيل وإعادة الرفع.`,
           referenceType: "booking",
-          referenceId: bookingId,
+          referenceId: String(bookingId),
         });
       }
     } catch (notifErr) {
@@ -1348,8 +1348,8 @@ router.post("/:bookingId/rent-payments/:paymentId/manual-pay", requireAuth, requ
 
     const payment = await db.query.rentPayments.findFirst({
       where: and(
-        eq(rentPayments.id, paymentId),
-        eq(rentPayments.bookingId, bookingId)
+        eq(rentPayments.id, String(paymentId)),
+        eq(rentPayments.bookingId, String(bookingId))
       ),
     });
 
@@ -1368,10 +1368,10 @@ router.post("/:bookingId/rent-payments/:paymentId/manual-pay", requireAuth, requ
         approvedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(rentPayments.id, paymentId));
+      .where(eq(rentPayments.id, String(paymentId)));
 
     const updatedPayment = await db.query.rentPayments.findFirst({
-      where: eq(rentPayments.id, paymentId),
+      where: eq(rentPayments.id, String(paymentId)),
     });
 
     res.json(mapOverdueStatus(updatedPayment));

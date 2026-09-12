@@ -116,6 +116,8 @@ export interface PlatformProperty {
   lat?: number;
   lng?: number;
   nearbyAmenities?: NearbyAmenities;
+  description?: string;
+  availablePlaces?: number;
 }
 
 const STORAGE_INSPECTIONS_KEY = "mkany_inspections_requests_v1";

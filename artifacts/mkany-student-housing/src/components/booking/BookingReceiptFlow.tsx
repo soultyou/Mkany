@@ -34,6 +34,7 @@ interface BookingReceiptFlowProps {
     images: string[];
     availableFrom: string;
   };
+  initialAppointmentDate?: string;
   onClose: () => void;
   openToast: (msg: string) => void;
   onGoToStudentDashboard: () => void;
@@ -53,6 +54,7 @@ const SAMPLE_RECEIPT_PRESETS = [
 
 export function BookingReceiptFlow({
   property,
+  initialAppointmentDate,
   onClose,
   openToast,
   onGoToStudentDashboard,
@@ -72,7 +74,9 @@ export function BookingReceiptFlow({
   // بيانات إيصال التحويل
   const [senderPhone, setSenderPhone] = useState(user?.phoneNumber || "01098765432");
   const [referenceNumber, setReferenceNumber] = useState("");
-  const [appointmentDate, setAppointmentDate] = useState("الإثنين، ١٥ سبتمبر ٢٠٢٤");
+  const [appointmentDate, setAppointmentDate] = useState(
+    initialAppointmentDate || property.availableFrom || "الإثنين، ١٥ سبتمبر ٢٠٢٤"
+  );
   const [appointmentTime, setAppointmentTime] = useState("الساعة ٢:٠٠ ظهراً");
   const [receiptImageUrl, setReceiptImageUrl] = useState<string>(SAMPLE_RECEIPT_PRESETS[0].url);
   const [isUploading, setIsUploading] = useState(false);

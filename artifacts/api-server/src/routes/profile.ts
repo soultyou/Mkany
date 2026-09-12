@@ -84,7 +84,7 @@ profileRouter.post("/onboarding", async (req, res) => {
 
   // Security check 1: Admin, Owner, or Student with real completed data cannot re-run onboarding to alter roles.
   const isStudentCompleted = dbUser.role === "student" && dbUser.nationalId !== "00000000000000" && dbUser.phoneNumber !== "01000000000";
-  if (dbUser.role === "admin" || dbUser.role === "owner" || isStudentCompleted) {
+  if (dbUser.role === "admin" || dbUser.role === "super_admin" || dbUser.role === "owner" || isStudentCompleted) {
     res.status(403).json({ error: "Forbidden", message: "Onboarding already completed for this account" });
     return;
   }

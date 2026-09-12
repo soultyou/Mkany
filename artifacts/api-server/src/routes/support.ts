@@ -145,7 +145,7 @@ router.post("/conversations", requireAuth, async (req: Request, res: Response) =
     // Strictly enforce identity from authenticated DB user - NEVER trust client body
     const authenticatedUser = req.dbUser!;
     const userId = authenticatedUser.id;
-    const userRole = authenticatedUser.role === "owner" ? "owner" : authenticatedUser.role === "admin" ? "admin" : "student";
+    const userRole = authenticatedUser.role === "owner" ? "owner" : (authenticatedUser.role === "admin" || authenticatedUser.role === "super_admin") ? "admin" : "student";
 
     const convId = `conv_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -354,7 +354,7 @@ router.get("/conversations/:id", requireAuth, async (req: Request, res: Response
       return res.status(404).json({ error: "Not Found", message: "محادثة الدعم غير موجودة" });
     }
 
-    const isAdmin = req.dbUser!.role === "admin";
+    const isAdmin = req.dbUser!.role === "admin" || req.dbUser!.role === "super_admin";
     
     // IDOR Protection: Non-admins cannot access conversations owned by other users
     if (!isAdmin && conversation.userId !== req.dbUser!.id) {
@@ -411,7 +411,7 @@ router.post("/conversations/:id/messages", requireAuth, async (req: Request, res
       return res.status(404).json({ error: "Not Found", message: "محادثة الدعم غير موجودة" });
     }
 
-    const isAdmin = req.dbUser!.role === "admin";
+    const isAdmin = req.dbUser!.role === "admin" || req.dbUser!.role === "super_admin";
 
     // IDOR Protection
     if (!isAdmin && conversation.userId !== req.dbUser!.id) {

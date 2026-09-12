@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db, users, bookings, rentPayments, apartments } from "@workspace/db";
 import { eq, or, and, isNotNull, inArray, desc } from "drizzle-orm";
 import { requireAuth, requireSuperAdmin, requireAdmin } from "../middlewares/auth";
+import { createNotification } from "../lib/notifications-helper";
 
 const adminRouter = Router();
 
@@ -261,6 +262,33 @@ adminRouter.patch("/admins/:id", requireAuth, requireSuperAdmin, async (req: Req
     };
 
     req.log.info({ updatedBy: req.dbUser?.id, targetId: id }, "Updated admin details");
+
+    if (isVerified !== undefined && isVerified !== userToUpdate.isVerified) {
+      try {
+        if (isVerified) {
+          await createNotification({
+            userId: userToUpdate.id,
+            type: "user_verified",
+            title: "تم قبول التحقق",
+            body: "تم قبول التحقق من حسابك بنجاح.",
+            referenceType: "user",
+            referenceId: userToUpdate.id,
+          });
+        } else {
+          await createNotification({
+            userId: userToUpdate.id,
+            type: "user_unverified",
+            title: "تم رفض التحقق",
+            body: "تم رفض طلب التحقق. يرجى مراجعة بيانات التحقق أو التواصل مع الدعم.",
+            referenceType: "user",
+            referenceId: userToUpdate.id,
+          });
+        }
+      } catch (notifErr) {
+        req.log.warn({ notifErr, targetUserId: userToUpdate.id }, "Failed to send verification status notification");
+      }
+    }
+
     return res.json(sanitizedUpdated);
   } catch (error) {
     req.log.error({ error }, "Failed to update admin");
@@ -329,31 +357,31 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
     });
 
     // 1. Subscription Metrics (Approved, Pending, Rejected, Pro)
-    const approvedSubs = allBookings.filter(b => b.subscriptionStatus === "approved");
-    const pendingSubs = allBookings.filter(b => b.subscriptionStatus === "pending_review");
-    const rejectedSubs = allBookings.filter(b => b.subscriptionStatus === "rejected");
-    const proUsers = allUsers.filter(u => u.subscriptionStatus === "approved");
+    const approvedSubs = allBookings.filter((b: any) => b.subscriptionStatus === "approved");
+    const pendingSubs = allBookings.filter((b: any) => b.subscriptionStatus === "pending_review");
+    const rejectedSubs = allBookings.filter((b: any) => b.subscriptionStatus === "rejected");
+    const proUsers = allUsers.filter((u: any) => u.subscriptionStatus === "approved");
 
     // 2. Rent Metrics (Paid, Due, Overdue, Pending Review, Rejected)
-    const paidRent = allRentPayments.filter(p => p.status === "paid");
-    const dueRent = allRentPayments.filter(p => p.status === "due");
-    const overdueRent = allRentPayments.filter(p => p.status === "overdue");
-    const pendingRent = allRentPayments.filter(p => p.status === "pending_review");
-    const rejectedRent = allRentPayments.filter(p => p.status === "rejected");
+    const paidRent = allRentPayments.filter((p: any) => p.status === "paid");
+    const dueRent = allRentPayments.filter((p: any) => p.status === "due");
+    const overdueRent = allRentPayments.filter((p: any) => p.status === "overdue");
+    const pendingRent = allRentPayments.filter((p: any) => p.status === "pending_review");
+    const rejectedRent = allRentPayments.filter((p: any) => p.status === "rejected");
 
-    const totalRentPaidAmount = paidRent.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalRentDueAmount = dueRent.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalRentOverdueAmount = overdueRent.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalRentPendingAmount = pendingRent.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalRentRejectedAmount = rejectedRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalRentPaidAmount = paidRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const totalRentDueAmount = dueRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const totalRentOverdueAmount = overdueRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const totalRentPendingAmount = pendingRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+    const totalRentRejectedAmount = rejectedRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
     // 3. Deposit Metrics
-    const totalDepositsRequired = allBookings.reduce((sum, b) => sum + (b.depositAmount || 0), 0);
-    const totalDepositsPaid = allBookings.filter(b => b.depositStatus === "paid").reduce((sum, b) => sum + (b.depositAmount || 0), 0);
+    const totalDepositsRequired = allBookings.reduce((sum: number, b: any) => sum + (b.depositAmount || 0), 0);
+    const totalDepositsPaid = allBookings.filter((b: any) => b.depositStatus === "paid").reduce((sum: number, b: any) => sum + (b.depositAmount || 0), 0);
     const totalDepositsUnpaid = Math.max(0, totalDepositsRequired - totalDepositsPaid);
 
     // 4. Overall Revenue (Approved Subscription + Paid Rent + Paid Deposit)
-    const subscriptionRevenue = approvedSubs.reduce((sum, b) => sum + (b.subscriptionAmount || 1200), 0);
+    const subscriptionRevenue = approvedSubs.reduce((sum: number, b: any) => sum + (b.subscriptionAmount || 1200), 0);
     const totalRevenue = subscriptionRevenue + totalRentPaidAmount + totalDepositsPaid;
 
     // 5. Occupancy metrics based on existing authoritative calculations
@@ -365,7 +393,7 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
     let totalPlacesCapacity = 0;
     let totalPlacesOccupied = 0;
 
-    allApartments.forEach(property => {
+    allApartments.forEach((property: any) => {
       const capacity = property.bedrooms || 0;
       const currentRoommates = property.currentRoommates || 0;
       const propertyBookings = property.bookings || [];
@@ -428,19 +456,19 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
     };
 
     if (yearFilter || monthFilter) {
-      const filteredApprovedSubs = approvedSubs.filter(b => matchesFilter(b.subscriptionApprovedAt || b.createdAt, yearFilter, monthFilter));
-      filteredSubscriptionRevenue = filteredApprovedSubs.reduce((sum, b) => sum + (b.subscriptionAmount || 1200), 0);
+      const filteredApprovedSubs = approvedSubs.filter((b: any) => matchesFilter(b.subscriptionApprovedAt || b.createdAt, yearFilter, monthFilter));
+      filteredSubscriptionRevenue = filteredApprovedSubs.reduce((sum: number, b: any) => sum + (b.subscriptionAmount || 1200), 0);
 
-      const filteredPaidRent = paidRent.filter(p => matchesFilter(p.paidAt || p.createdAt, yearFilter, monthFilter));
-      filteredCollectedRent = filteredPaidRent.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const filteredPaidRent = paidRent.filter((p: any) => matchesFilter(p.paidAt || p.createdAt, yearFilter, monthFilter));
+      filteredCollectedRent = filteredPaidRent.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-      const filteredDueRentPayments = dueRent.filter(p => {
+      const filteredDueRentPayments = dueRent.filter((p: any) => {
         return matchesFilter(p.dueDate || p.createdAt, yearFilter, monthFilter);
       });
-      filteredDueRent = filteredDueRentPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      filteredDueRent = filteredDueRentPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-      const filteredPaidDeposits = allBookings.filter(b => b.depositStatus === "paid" && matchesFilter(b.depositPaidAt || b.createdAt, yearFilter, monthFilter));
-      filteredCollectedDeposit = filteredPaidDeposits.reduce((sum, b) => sum + (b.depositAmount || 0), 0);
+      const filteredPaidDeposits = allBookings.filter((b: any) => b.depositStatus === "paid" && matchesFilter(b.depositPaidAt || b.createdAt, yearFilter, monthFilter));
+      filteredCollectedDeposit = filteredPaidDeposits.reduce((sum: number, b: any) => sum + (b.depositAmount || 0), 0);
 
       filteredRevenue = filteredSubscriptionRevenue + filteredCollectedRent + filteredCollectedDeposit;
     }
@@ -448,7 +476,7 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
     // Generate monthly revenue grouping data for standard chart
     const revenueItems: { amount: number, date: Date, type: string }[] = [];
 
-    approvedSubs.forEach(b => {
+    approvedSubs.forEach((b: any) => {
       const date = b.subscriptionApprovedAt || b.createdAt;
       if (date) {
         revenueItems.push({
@@ -459,7 +487,7 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
       }
     });
 
-    paidRent.forEach(p => {
+    paidRent.forEach((p: any) => {
       const date = p.paidAt || p.createdAt;
       if (date) {
         revenueItems.push({
@@ -470,7 +498,7 @@ adminRouter.get("/financial/summary", requireAuth, requireAdmin, async (req: Req
       }
     });
 
-    allBookings.filter(b => b.depositStatus === "paid").forEach(b => {
+    allBookings.filter((b: any) => b.depositStatus === "paid").forEach((b: any) => {
       const date = b.depositPaidAt || b.createdAt;
       if (date) {
         revenueItems.push({

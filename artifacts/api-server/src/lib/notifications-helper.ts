@@ -12,7 +12,7 @@ export async function createNotification(params: {
     // Avoid generating duplicate notifications repeatedly
     // We can do a quick check to see if a very recent identical notification was already sent (within last 5 seconds)
     const recentNotification = await db.query.notifications.findFirst({
-      where: (n, { and, eq, gte }) =>
+      where: (n: any, { and, eq, gte }: any) =>
         and(
           eq(n.userId, params.userId),
           eq(n.type, params.type),

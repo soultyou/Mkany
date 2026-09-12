@@ -40,11 +40,18 @@ interface StudentDashboardProps {
   onExploreProperties: () => void;
   onViewPropertyModal?: (property: any) => void;
   onGoToOwnerDashboard?: () => void;
+  initialTab?: "bookings" | "favorites" | "profile" | "support";
 }
 
-export function StudentDashboard({ openToast, onExploreProperties, onViewPropertyModal, onGoToOwnerDashboard }: StudentDashboardProps) {
+export function StudentDashboard({ openToast, onExploreProperties, onViewPropertyModal, onGoToOwnerDashboard, initialTab = "bookings" }: StudentDashboardProps) {
   const { user, isSignedIn, openSignIn, updateUserProfile, switchRole } = useAuth();
-  const [activeTab, setActiveTab] = useState<"bookings" | "favorites" | "profile" | "support">("bookings");
+  const [activeTab, setActiveTab] = useState<"bookings" | "favorites" | "profile" | "support">(initialTab);
+
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
 
   // مفضلة الطالب من PostgreSQL

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireOwner, requireAdmin } from "../middlewares/auth";
 import { db, apartments, apartmentPhotos, users, bookings } from "@workspace/db";
-import { eq, and, or, desc, asc, sql } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql, ilike } from "drizzle-orm";
 import { insertApartmentSchema } from "@workspace/db/schema";
 import { getAuth } from "@clerk/express";
 import { ensureSeedApartments } from "../lib/seed-apartments";
@@ -15,18 +15,77 @@ const router = Router();
 // Browse apartments (public or student or filtering by query parameters)
 router.get("/", async (req, res) => {
   try {
-    const { city, university, minPrice, maxPrice, bedrooms, status, ownerId, page = "1", limit = "50" } = req.query;
-    const pageNum = parseInt(page as string, 10) || 1;
-    const limitNum = parseInt(limit as string, 10) || 50;
+    const { 
+      city, 
+      university, 
+      minPrice, 
+      maxPrice, 
+      bedrooms, 
+      status, 
+      ownerId, 
+      page = "1", 
+      limit = "50",
+      q,
+      search,
+      roomType,
+      availableOnly,
+      availablePlacesOnly,
+      sort
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
     const conditions = [];
-    if (city) conditions.push(eq(apartments.city, city as string));
-    if (university) conditions.push(eq(apartments.university, university as string));
-    if (minPrice) conditions.push(sql`${apartments.pricePerMonth} >= ${parseInt(minPrice as string, 10)}`);
-    if (maxPrice) conditions.push(sql`${apartments.pricePerMonth} <= ${parseInt(maxPrice as string, 10)}`);
-    if (bedrooms) conditions.push(eq(apartments.bedrooms, parseInt(bedrooms as string, 10)));
-    if (ownerId) conditions.push(eq(apartments.ownerId, ownerId as string));
+
+    // Text Search query (title, description, city, university, address)
+    const rawSearch = String(q || search || "").trim();
+    if (rawSearch.length > 0) {
+      const searchQuery = rawSearch.slice(0, 100);
+      const pattern = `%${searchQuery}%`;
+      conditions.push(
+        or(
+          ilike(apartments.title, pattern),
+          ilike(apartments.description, pattern),
+          ilike(apartments.city, pattern),
+          ilike(apartments.university, pattern),
+          ilike(apartments.address, pattern)
+        )
+      );
+    }
+
+    if (city && typeof city === "string" && city.trim()) {
+      conditions.push(eq(apartments.city, city.trim().slice(0, 50)));
+    }
+    if (university && typeof university === "string" && university.trim()) {
+      conditions.push(eq(apartments.university, university.trim().slice(0, 50)));
+    }
+    if (roomType && typeof roomType === "string" && roomType.trim()) {
+      conditions.push(eq(apartments.roomType, roomType.trim().slice(0, 50)));
+    }
+
+    if (minPrice) {
+      const minVal = parseInt(minPrice as string, 10);
+      if (!isNaN(minVal) && minVal >= 0) {
+        conditions.push(sql`${apartments.pricePerMonth} >= ${minVal}`);
+      }
+    }
+    if (maxPrice) {
+      const maxVal = parseInt(maxPrice as string, 10);
+      if (!isNaN(maxVal) && maxVal >= 0) {
+        conditions.push(sql`${apartments.pricePerMonth} <= ${maxVal}`);
+      }
+    }
+    if (bedrooms) {
+      const bedVal = parseInt(bedrooms as string, 10);
+      if (!isNaN(bedVal) && bedVal >= 0) {
+        conditions.push(eq(apartments.bedrooms, bedVal));
+      }
+    }
+    if (ownerId && typeof ownerId === "string") {
+      conditions.push(eq(apartments.ownerId, ownerId));
+    }
 
     // CRITICAL SECURITY RULE: Students and public users MUST ONLY see "متاح" (approved & available) properties.
     // Pending ("قيد المراجعة") or rejected ("مرفوض") properties are never returned to students/public.
@@ -40,7 +99,7 @@ router.get("/", async (req, res) => {
         where: or(eq(users.clerkUserId, auth.userId), eq(users.id, auth.userId)),
       });
       if (authUser) {
-        if (authUser.role === "admin") isRequesterAdmin = true;
+        if (authUser.role === "admin" || authUser.role === "super_admin") isRequesterAdmin = true;
         requesterId = authUser.id;
         requesterClerkId = authUser.clerkUserId;
       }
@@ -48,13 +107,13 @@ router.get("/", async (req, res) => {
 
     if (isRequesterAdmin) {
       // Admins can see all or filter by requested status
-      if (status && status !== "all") {
-        conditions.push(eq(apartments.status, status as string));
+      if (status && status !== "all" && typeof status === "string") {
+        conditions.push(eq(apartments.status, status));
       }
     } else if (ownerId && requesterId && (ownerId === requesterId || (requesterClerkId && ownerId === requesterClerkId))) {
       // The owner themselves querying their own apartments can see their pending/rejected units
-      if (status && status !== "all") {
-        conditions.push(eq(apartments.status, status as string));
+      if (status && status !== "all" && typeof status === "string") {
+        conditions.push(eq(apartments.status, status));
       }
     } else {
       // For general student/public browsing or other owners, strictly restrict to "متاح"
@@ -63,11 +122,23 @@ router.get("/", async (req, res) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // Strict allowed sort values mapping
+    let orderByClause: any[] = [desc(apartments.createdAt)];
+    if (sort === "price_asc") {
+      orderByClause = [asc(apartments.pricePerMonth)];
+    } else if (sort === "price_desc") {
+      orderByClause = [desc(apartments.pricePerMonth)];
+    } else if (sort === "newest") {
+      orderByClause = [desc(apartments.createdAt)];
+    } else if (sort === "livability") {
+      orderByClause = [desc(apartments.livabilityScore)];
+    }
+
     let data = await db.query.apartments.findMany({
       where: whereClause,
       limit: limitNum,
       offset,
-      orderBy: [desc(apartments.createdAt)],
+      orderBy: orderByClause,
       with: {
         photos: {
           orderBy: [asc(apartmentPhotos.displayOrder)],
@@ -82,13 +153,13 @@ router.get("/", async (req, res) => {
       },
     });
 
-    if (data.length === 0 && !city && !university && !ownerId) {
+    if (data.length === 0 && !city && !university && !ownerId && !rawSearch) {
       await ensureSeedApartments();
       data = await db.query.apartments.findMany({
         where: whereClause,
         limit: limitNum,
         offset,
-        orderBy: [desc(apartments.createdAt)],
+        orderBy: orderByClause,
         with: {
           photos: {
             orderBy: [asc(apartmentPhotos.displayOrder)],
@@ -122,18 +193,25 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const enhancedData = data.map((apt: any) => {
+    let enhancedData = data.map((apt: any) => {
       const aptBookings = allActiveBookings.filter((b: any) => b.propertyId === apt.id);
       const capacity = apt.bedrooms || 0;
       const currentRoommates = apt.currentRoommates || 0;
       const occupiedPlaces = currentRoommates + aptBookings.length;
       const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      const hasValidCoords = apt.lat !== null && apt.lat !== undefined && apt.lng !== null && apt.lng !== undefined && !isNaN(Number(apt.lat)) && !isNaN(Number(apt.lng));
       return {
         ...apt,
+        nearbyAmenities: hasValidCoords ? apt.nearbyAmenities : null,
         activeBookings: aptBookings,
         availablePlaces,
       };
     });
+
+    // Authoritative server-side availablePlaces filter
+    if (availableOnly === "true" || availablePlacesOnly === "true") {
+      enhancedData = enhancedData.filter((apt: any) => apt.availablePlaces > 0);
+    }
 
     return res.json(enhancedData);
   } catch (error) {
@@ -195,8 +273,10 @@ router.get("/mine", requireAuth, requireOwner, async (req, res) => {
       const currentRoommates = apt.currentRoommates || 0;
       const occupiedPlaces = currentRoommates + aptBookings.length;
       const availablePlaces = Math.max(0, capacity - occupiedPlaces);
+      const hasValidCoords = apt.lat !== null && apt.lat !== undefined && apt.lng !== null && apt.lng !== undefined && !isNaN(Number(apt.lat)) && !isNaN(Number(apt.lng));
       return {
         ...apt,
+        nearbyAmenities: hasValidCoords ? apt.nearbyAmenities : null,
         activeBookings: aptBookings,
         availablePlaces,
       };
@@ -294,8 +374,10 @@ router.get("/:id", async (req, res) => {
     const occupiedPlaces = currentRoommates + activeBookings.length;
     const availablePlaces = Math.max(0, capacity - occupiedPlaces);
 
+    const hasValidCoords = data.lat !== null && data.lat !== undefined && data.lng !== null && data.lng !== undefined && !isNaN(Number(data.lat)) && !isNaN(Number(data.lng));
     const enhancedData = {
       ...data,
+      nearbyAmenities: hasValidCoords ? data.nearbyAmenities : null,
       activeBookings,
       availablePlaces,
     };
@@ -355,29 +437,31 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
 
     // 3. Real OSM Overpass Fetching or Admin-provided nearbyAmenities with Mkany ratings
     let nearbyAmenities = null;
-    if (req.body.nearbyAmenities !== undefined) {
-      if (dbUser.role === "admin" || dbUser.role === "super_admin") {
-        const ratingValidation = validateAmenitiesRatings(req.body.nearbyAmenities);
-        if (!ratingValidation.valid) {
-          return res.status(400).json({
-            error: "Bad Request",
-            message: ratingValidation.error || "التقييم المدخل غير صالح. تقييم مكاني يجب أن يكون بين 0 و 5 وبمضاعفات النصف نجمة (0, 0.5, 1, 1.5, ... 5).",
-          });
-        }
-        nearbyAmenities = ratingValidation.sanitized;
-        for (const entry of ratingValidation.entriesToPersist) {
-          try {
-            await persistServiceRating(entry, dbUser.id);
-          } catch (persistErr) {
-            req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
+    if (lat !== undefined && lng !== undefined && lat !== null && lng !== null) {
+      if (req.body.nearbyAmenities !== undefined) {
+        if (dbUser.role === "admin" || dbUser.role === "super_admin") {
+          const ratingValidation = validateAmenitiesRatings(req.body.nearbyAmenities);
+          if (!ratingValidation.valid) {
+            return res.status(400).json({
+              error: "Bad Request",
+              message: ratingValidation.error || "التقييم المدخل غير صالح. تقييم مكاني يجب أن يكون بين 0 و 5 وبمضاعفات النصف نجمة (0, 0.5, 1, 1.5, ... 5).",
+            });
+          }
+          nearbyAmenities = ratingValidation.sanitized;
+          for (const entry of ratingValidation.entriesToPersist) {
+            try {
+              await persistServiceRating(entry, dbUser.id);
+            } catch (persistErr) {
+              req.log.warn({ persistErr, entry }, "Failed to persist service rating to DB table");
+            }
           }
         }
-      }
-    } else if (lat !== undefined && lng !== undefined) {
-      try {
-        nearbyAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
-      } catch (overpassErr) {
-        console.error("Failed to fetch amenities from Overpass:", overpassErr);
+      } else {
+        try {
+          nearbyAmenities = await fetchNearbyAmenitiesFromOverpass(lat, lng);
+        } catch (overpassErr) {
+          console.error("Failed to fetch amenities from Overpass:", overpassErr);
+        }
       }
     }
 
@@ -387,12 +471,12 @@ router.post("/", requireAuth, requireOwner, async (req, res) => {
       : (Array.isArray(result.data.images) ? result.data.images : []);
 
     // WORKFLOW RULE: If created by an Owner (non-admin), property starts in "قيد المراجعة" (Pending Review) and unverified.
-    // Admin submissions can immediately be "متاح" and verified.
-    const initialStatus = dbUser.role === "admin" 
+    // Admin / Super Admin submissions can immediately be "متاح" and verified.
+    const initialStatus = (dbUser.role === "admin" || dbUser.role === "super_admin") 
       ? (result.data.status || "متاح") 
       : "قيد المراجعة";
 
-    const initialVerified = dbUser.role === "admin" 
+    const initialVerified = (dbUser.role === "admin" || dbUser.role === "super_admin") 
       ? (result.data.verified ?? true) 
       : false;
 
@@ -483,7 +567,7 @@ router.patch("/:id", requireAuth, requireOwner, async (req, res) => {
       return res.status(404).json({ error: "Apartment not found" });
     }
 
-    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
+    if (dbUser.role !== "admin" && dbUser.role !== "super_admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
 
@@ -672,7 +756,7 @@ router.delete("/:id", requireAuth, requireOwner, async (req, res) => {
       return res.status(404).json({ error: "Apartment not found" });
     }
 
-    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
+    if (dbUser.role !== "admin" && dbUser.role !== "super_admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden: You do not own this apartment" });
     }
 
@@ -804,7 +888,7 @@ router.post("/:id/photos", requireAuth, requireOwner, async (req, res) => {
       return res.status(404).json({ error: "Apartment not found" });
     }
 
-    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
+    if (dbUser.role !== "admin" && dbUser.role !== "super_admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -852,7 +936,7 @@ router.delete("/:id/photos/:photoId", requireAuth, requireOwner, async (req, res
       return res.status(404).json({ error: "Apartment not found" });
     }
 
-    if (dbUser.role !== "admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
+    if (dbUser.role !== "admin" && dbUser.role !== "super_admin" && existing.ownerId !== dbUser.id && existing.ownerId !== dbUser.clerkUserId) {
       return res.status(403).json({ error: "Forbidden" });
     }
 

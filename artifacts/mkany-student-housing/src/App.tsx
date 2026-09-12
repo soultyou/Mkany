@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Heart, Search, Menu, X, Moon, Sun, ShieldCheck, ChevronDown, MapPin, GraduationCap, Sparkles, ArrowLeft, Ruler, BedDouble, Bath, Users, Building2, CalendarDays, Wifi, Sofa, Star, Check, LockKeyhole, Plus, BarChart3, Eye, Clock3, SlidersHorizontal, MessageCircle, FileText, Send, RefreshCw, Copy, Download, Home as HomeIcon, UserRound, Zap, Instagram, Linkedin, Facebook, Sparkle, CircleDollarSign, Crown } from "lucide-react";
+import { Heart, Search, Menu, X, Moon, Sun, ShieldCheck, ChevronDown, MapPin, GraduationCap, Sparkles, ArrowLeft, Ruler, BedDouble, Bath, Users, Building2, CalendarDays, Wifi, Sofa, Star, Check, LockKeyhole, Plus, BarChart3, Eye, Clock3, SlidersHorizontal, MessageCircle, FileText, Send, RefreshCw, Copy, Download, Home as HomeIcon, UserRound, Zap, Instagram, Linkedin, Facebook, Sparkle, CircleDollarSign, Crown, LifeBuoy } from "lucide-react";
 import { Router as WouterRouter, Route, Switch, useLocation } from "wouter";
 import { 
   ClerkAuthProvider, 
@@ -92,12 +92,18 @@ function Header({
   activeView, 
   setView, 
   openToast,
+  savedCount = 0,
+  studentTab,
+  setStudentTab
 }: { 
   light: boolean; 
   onTheme: () => void; 
   activeView: ActiveViewType; 
   setView: (v: ActiveViewType) => void; 
   openToast: (t: string) => void;
+  savedCount?: number;
+  studentTab?: "bookings" | "favorites" | "profile" | "support";
+  setStudentTab?: (t: "bookings" | "favorites" | "profile" | "support") => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { user } = useUser();
@@ -106,6 +112,12 @@ function Header({
   const handleLogoClick = () => {
     setView("listings");
     go("home");
+  };
+
+  const navToStudentTab = (tab: "bookings" | "favorites" | "profile" | "support") => {
+    if (setStudentTab) setStudentTab(tab);
+    setView("studentDashboard");
+    setMenuOpen(false);
   };
 
   return <>
@@ -119,6 +131,40 @@ function Header({
         <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground md:flex">
           <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
           <button onClick={() => { setView("listings"); go("discover"); }} className="hover:text-primary transition-colors" data-testid="link-discover">اكتشف السكن</button>
+          
+          <SignedIn>
+            {user?.role !== "owner" && (
+              <>
+                <button 
+                  onClick={() => navToStudentTab("bookings")} 
+                  className={`hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "bookings" ? "text-primary font-bold" : ""}`} 
+                  data-testid="link-my-bookings"
+                >
+                  حجوزاتي
+                </button>
+                <button 
+                  onClick={() => navToStudentTab("favorites")} 
+                  className={`flex items-center gap-1.5 hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "favorites" ? "text-primary font-bold" : ""}`} 
+                  data-testid="link-my-favorites"
+                >
+                  <span>المفضلة</span>
+                  {savedCount > 0 && (
+                    <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white" data-testid="badge-favorites-count">
+                      {savedCount}
+                    </span>
+                  )}
+                </button>
+                <button 
+                  onClick={() => navToStudentTab("support")} 
+                  className={`hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "support" ? "text-primary font-bold" : ""}`} 
+                  data-testid="link-support"
+                >
+                  الدعم والمساعدة
+                </button>
+              </>
+            )}
+          </SignedIn>
+
           {user?.role !== "student" && (
             <button onClick={() => setView("ownerPublic")} className={`hover:text-primary transition-colors ${activeView === "ownerPublic" ? "text-primary font-bold" : ""}`} data-testid="link-owners">للملاك</button>
           )}
@@ -131,18 +177,35 @@ function Header({
           <SignedIn>
             {/* زر لوحة الطالب وحجوزاته - يظهر فقط للطلاب والمستخدمين العاديين */}
             {user?.role !== "owner" && (
-              <button
-                onClick={() => setView("studentDashboard")}
-                className={`hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                  activeView === "studentDashboard"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                }`}
-                data-testid="header-button-student-dashboard"
-              >
-                <FileText size={15} />
-                حجوزاتي وبياناتي
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navToStudentTab("favorites")}
+                  className={`hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold transition-all text-foreground hover:bg-muted ${
+                    activeView === "studentDashboard" && studentTab === "favorites" ? "border-primary text-primary" : ""
+                  }`}
+                  data-testid="header-button-student-favorites"
+                >
+                  <Heart size={15} className="text-rose-500 fill-rose-500/20" />
+                  <span>المفضلة</span>
+                  {savedCount > 0 && (
+                    <span className="rounded-full bg-rose-500 text-white px-1.5 py-0.5 text-[10px] font-extrabold">
+                      {savedCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => navToStudentTab("bookings")}
+                  className={`hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                    activeView === "studentDashboard" && studentTab === "bookings"
+                      ? "bg-primary text-primary-foreground shadow"
+                      : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                  }`}
+                  data-testid="header-button-student-dashboard"
+                >
+                  <FileText size={15} />
+                  حجوزاتي وبياناتي
+                </button>
+              </div>
             )}
 
             {/* زر لوحة المالك - يظهر للملاك */}
@@ -231,18 +294,48 @@ function Header({
 
           <nav className="flex flex-col gap-4 text-base font-bold">
             <button onClick={() => { setView("listings"); go("home"); }} className="text-right hover:text-primary" data-testid="mobile-link-home">الرئيسية</button>
-            <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary" data-testid="mobile-link-discover">اكتشف السكن</button>
+            <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary flex items-center gap-2" data-testid="mobile-link-discover"><Search size={16} />اكتشف السكن</button>
             
             <SignedIn>
               {user?.role !== "owner" && (
-                <button 
-                  onClick={() => { setView("studentDashboard"); setMenuOpen(false); }} 
-                  className="text-right text-primary flex items-center gap-2" 
-                  data-testid="mobile-link-student-dashboard"
-                >
-                  <FileText size={16} />
-                  حجوزاتي وبياناتي (لوحة الطالب)
-                </button>
+                <>
+                  <button 
+                    onClick={() => navToStudentTab("bookings")} 
+                    className="text-right text-primary flex items-center gap-2" 
+                    data-testid="mobile-link-student-bookings"
+                  >
+                    <FileText size={16} />
+                    حجوزاتي
+                  </button>
+                  <button 
+                    onClick={() => navToStudentTab("favorites")} 
+                    className="text-right hover:text-primary flex items-center justify-between gap-2" 
+                    data-testid="mobile-link-student-favorites"
+                  >
+                    <span className="flex items-center gap-2"><Heart size={16} className="text-rose-500 fill-rose-500/20" />المفضلة</span>
+                    {savedCount > 0 && (
+                      <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">
+                        {savedCount}
+                      </span>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => navToStudentTab("profile")} 
+                    className="text-right hover:text-primary flex items-center gap-2" 
+                    data-testid="mobile-link-student-profile"
+                  >
+                    <UserRound size={16} />
+                    الملف الشخصي
+                  </button>
+                  <button 
+                    onClick={() => navToStudentTab("support")} 
+                    className="text-right hover:text-primary flex items-center gap-2" 
+                    data-testid="mobile-link-student-support"
+                  >
+                    <LifeBuoy size={16} />
+                    الدعم والمساعدة
+                  </button>
+                </>
               )}
 
               {(user?.role === "owner" || user?.role === "admin" || user?.role === "super_admin") && (
@@ -283,19 +376,142 @@ function Header({
   </>;
 }
 
-function SearchBox({ onSearch }: { onSearch: (city: string, type: string, budget: string) => void }) {
-  const [city, setCity] = useState(""); const [type, setType] = useState(""); const [budget, setBudget] = useState(""); const [quick, setQuick] = useState("");
-  const submit = () => onSearch(city, type, budget);
-  const field = (label: string, value: string, set: (v: string) => void, options: string[]) => <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-right text-xs font-semibold text-muted-foreground"><span>{label}</span><div className="relative"><select value={value} onChange={(e) => set(e.target.value)} className="w-full appearance-none rounded-lg border border-border bg-background/80 px-3 py-3 pl-8 text-sm font-semibold text-foreground outline-none focus:border-primary" data-testid={`select-${label}` }><option value="">الكل</option>{options.map((o) => <option key={o} value={o}>{o}</option>)}</select><ChevronDown size={15} className="pointer-events-none absolute left-3 top-3.5 text-muted-foreground" /></div></label>;
-  return <div className="hero-ring mx-auto mt-8 max-w-5xl rounded-2xl bg-card/80 p-3 backdrop-blur-md sm:p-5" data-testid="search-panel">
-    <div className="grid gap-3 md:grid-cols-[1.1fr_1fr_1fr_auto] md:items-end">
-      {field("المدينة / الجامعة", city, setCity, ["جامعة كفر الشيخ", "جامعة طنطا", "جامعة المنصورة", "جامعة الإسكندرية", "جامعة دمياط"])}
-      {field("نوع السكن", type, setType, ["غرفة فردية", "غرفة مزدوجة", "استوديو", "شقة مشتركة"])}
-      {field("الميزانية الشهرية", budget, setBudget, ["أقل من ٨٠٠ جنيه", "٨٠٠-١٥٠٠ جنيه", "١٥٠٠-٣٠٠٠ جنيه", "أكثر من ٣٠٠٠ جنيه"])}
-      <button onClick={submit} className="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3.5 font-bold text-primary-foreground hover:-translate-y-0.5" data-testid="button-search"><Search size={18} />ابحث الآن</button>
+function SearchBox({ onSearch }: { onSearch: (city: string, type: string, budget: string, text?: string, availableOnly?: boolean, sort?: string) => void }) {
+  const [city, setCity] = useState(""); 
+  const [type, setType] = useState(""); 
+  const [budget, setBudget] = useState(""); 
+  const [text, setText] = useState(""); 
+  const [availableOnly, setAvailableOnly] = useState(false); 
+  const [sort, setSort] = useState("newest"); 
+  const [quick, setQuick] = useState("");
+
+  const submit = () => onSearch(city, type, budget, text, availableOnly, sort);
+
+  const resetAll = () => {
+    setCity("");
+    setType("");
+    setBudget("");
+    setText("");
+    setAvailableOnly(false);
+    setSort("newest");
+    setQuick("");
+    onSearch("", "", "", "", false, "newest");
+  };
+
+  const hasActiveFilters = Boolean(city || type || budget || text || availableOnly || sort !== "newest" || quick);
+
+  const field = (label: string, value: string, set: (v: string) => void, options: string[]) => (
+    <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-right text-xs font-semibold text-muted-foreground">
+      <span>{label}</span>
+      <div className="relative">
+        <select 
+          value={value} 
+          onChange={(e) => set(e.target.value)} 
+          className="w-full appearance-none rounded-lg border border-border bg-background/80 px-3 py-3 pl-8 text-sm font-semibold text-foreground outline-none focus:border-primary" 
+          data-testid={`select-${label}`}
+        >
+          <option value="">الكل</option>
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <ChevronDown size={15} className="pointer-events-none absolute left-3 top-3.5 text-muted-foreground" />
+      </div>
+    </label>
+  );
+
+  return (
+    <div className="hero-ring mx-auto mt-8 max-w-5xl rounded-2xl bg-card/80 p-3 backdrop-blur-md sm:p-5" data-testid="search-panel">
+      {/* السطر الأول: نص البحث المباشر */}
+      <div className="mb-3 relative">
+        <input 
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="ابحث باسم العقار، الجامعة، المدينة، أو اسم الشارع..."
+          className="w-full rounded-xl border border-border bg-background/90 py-3 pr-10 pl-4 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary font-semibold text-foreground"
+          data-testid="input-search-text"
+        />
+        <Search size={18} className="absolute right-3.5 top-3.5 text-muted-foreground pointer-events-none" />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1.1fr_1fr_1fr_auto] md:items-end">
+        {field("المدينة / الجامعة", city, setCity, ["جامعة كفر الشيخ", "جامعة طنطا", "جامعة المنصورة", "جامعة الإسكندرية", "جامعة دمياط"])}
+        {field("نوع السكن", type, setType, ["غرفة فردية", "غرفة مزدوجة", "استوديو", "شقة مشتركة"])}
+        {field("الميزانية الشهرية", budget, setBudget, ["أقل من ٨٠٠ جنيه", "٨٠٠-١٥٠٠ جنيه", "١٥٠٠-٣٠٠٠ جنيه", "أكثر من ٣٠٠٠ جنيه"])}
+        <button 
+          onClick={submit} 
+          className="flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3.5 font-bold text-primary-foreground hover:-translate-y-0.5 shadow-sm" 
+          data-testid="button-search"
+        >
+          <Search size={18} />
+          ابحث الآن
+        </button>
+      </div>
+
+      {/* خيارات الفلترة والتجميع الإضافية */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 font-semibold text-foreground cursor-pointer select-none">
+            <input 
+              type="checkbox" 
+              checked={availableOnly} 
+              onChange={(e) => setAvailableOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary accent-[hsl(var(--primary))]" 
+              data-testid="checkbox-available-only"
+            />
+            <span>أماكن شاغرة فقط (متاح الآن)</span>
+          </label>
+
+          <div className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+            <span>الترتيب:</span>
+            <select 
+              value={sort} 
+              onChange={(e) => setSort(e.target.value)}
+              className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-bold text-foreground outline-none focus:border-primary"
+              data-testid="select-sort-order"
+            >
+              <option value="newest">أحدث العقارات</option>
+              <option value="price_asc">السعر: من الأقل للأعلى</option>
+              <option value="price_desc">السعر: من الأعلى للأقل</option>
+              <option value="livability">الأعلى في مؤشر جودة الحياة</option>
+            </select>
+          </div>
+        </div>
+
+        {hasActiveFilters && (
+          <button 
+            onClick={resetAll}
+            className="text-xs font-bold text-rose-600 hover:underline flex items-center gap-1"
+            data-testid="button-reset-all-filters"
+          >
+            إعادة ضبط الفلاتر ↺
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/40 pt-2.5">
+        <span className="ml-1 text-xs text-muted-foreground">اختيارات سريعة</span>
+        {["قريب من الجامعة", "واي فاي مجاني", "مفروش بالكامل", "بنات فقط", "0% عمولة"].map((chip) => (
+          <button 
+            key={chip} 
+            onClick={() => { 
+              const nextQuick = quick === chip ? "" : chip;
+              setQuick(nextQuick); 
+              onSearch(city, type, budget, nextQuick ? chip : text, availableOnly, sort); 
+            }} 
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              quick === chip 
+                ? "border-primary bg-primary/10 text-primary" 
+                : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+            }`} 
+            data-testid={`filter-chip-${chip}`}
+          >
+            {chip}
+          </button>
+        ))}
+      </div>
     </div>
-    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3"><span className="ml-1 text-xs text-muted-foreground">اختيارات سريعة</span>{["قريب من الجامعة", "واي فاي مجاني", "مفروش بالكامل", "بنات فقط", "0% عمولة"].map((chip) => <button key={chip} onClick={() => { setQuick(quick === chip ? "" : chip); onSearch(city, type, budget); }} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${quick === chip ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary hover:text-primary"}`} data-testid={`filter-chip-${chip}`}>{chip}</button>)}</div>
-  </div>;
+  );
 }
 
 function PropertyCard({ property, saved, onSave, onOpen }: { property: Property; saved: boolean; onSave: () => void; onOpen: () => void }) {
@@ -354,7 +570,7 @@ function PropertyDetail({
   property: Property; 
   onClose: () => void; 
   onAI: () => void; 
-  onBook: () => void;
+  onBook: (selectedDate?: string) => void;
   saved?: boolean;
   onSave?: () => void;
 }) {
@@ -569,11 +785,14 @@ function PropertyDetail({
   const fees = property.fees || "";
   const hasAnyCustomPolicy = rules || smoking || pets || visitorPolicy || utilities || deposit || fees;
 
+  const owner = (property as any).owner || { fullName: "مالك معتمد في مكاني", avatarUrl: null, isVerified: true };
+
   return <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}><div className="p-4 pt-14 sm:p-7 sm:pt-14">
+    {/* 1. هوية العقار والمؤشرات الرئيسية (العنوان، السعر، التوثيق، جودة الحياة) */}
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1 text-sm text-muted-foreground font-semibold">
             <MapPin size={15} className="text-primary" />
             {property.city} · {property.university}
           </span>
@@ -583,16 +802,22 @@ function PropertyDetail({
               موثّق ومعتمد
             </span>
           )}
-          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
             property.status === "متاح" 
               ? "bg-teal-500/10 border border-teal-500/20 text-teal-600" 
               : "bg-amber-500/10 border border-amber-500/20 text-amber-600"
           }`}>
             {property.status}
           </span>
+          {property.livabilityScore > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+              ★ مؤشر جودة الحياة: {property.livabilityScore} / ١٠٠
+            </span>
+          )}
         </div>
-        <h2 className="text-2xl font-extrabold sm:text-3xl">{property.title}</h2>
+        <h2 className="text-2xl font-extrabold sm:text-3xl text-foreground">{property.title}</h2>
       </div>
+
       <div className="flex items-center gap-3">
         {onSave && (
           <button
@@ -609,14 +834,14 @@ function PropertyDetail({
             {saved ? "في المفضلة" : "حفظ بالمفضلة"}
           </button>
         )}
-        <div className="text-left">
-          <strong className="text-2xl text-primary">{formatPrice(property.pricePerMonth)} <small className="text-sm font-semibold">جنيه / شهر</small></strong>
-          <p className="text-xs text-muted-foreground">إيجار الوحدة فقط</p>
+        <div className="text-left bg-primary/5 border border-primary/20 rounded-xl px-4 py-2">
+          <strong className="text-2xl font-black text-primary">{formatPrice(property.pricePerMonth)} <small className="text-xs font-bold text-primary">جنيه / شهر</small></strong>
+          <p className="text-[10px] font-semibold text-muted-foreground">شامل الرسوم الأساسية للإيجار</p>
         </div>
       </div>
     </div>
 
-    {/* معرض الصور والوسائط المطوّر */}
+    {/* 2. معرض الصور والوسائط المطوّر (الصور + الفيديو + نموذج 3D) */}
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="relative h-64 sm:h-[390px] w-full bg-slate-950">
         {media === "photos" ? (
@@ -676,7 +901,70 @@ function PropertyDetail({
       )}
     </div>
 
-    {/* تفاصيل الوحدة الأساسية */}
+    {/* 3D Model Badge (عند توفره) */}
+    {property.model3dUrl && (
+      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/40 p-4" data-testid="badge-3d-available">
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-blue-100 p-2.5 text-blue-600 shrink-0">
+            <Sparkle size={18} />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-blue-900">نموذج ثلاثي الأبعاد (3D Model) متوفر للعقار</h4>
+            <p className="mt-1 text-xs text-blue-800/80 leading-5">
+              تتوفر معاينة فراغية كاملة وتصميم ثلاثي الأبعاد تفاعلي آمن لهذه الوحدة السكنية. لحماية حقوق الخصوصية والأمان الفني للمالك والطلاب، يرجى تقديم طلب حجز للحصول على الرابط المعتمد رسمياً لتجربة التجول الافتراضي.
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* 3. التوفر والسعة الحالية (يظهر بارزاً قبل سياسات السكن) */}
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-summary">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-lg font-bold">حالة التوفر والسعة السكنية الشاغرة</h3>
+        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${
+          availablePlaces > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border border-red-500/20 text-red-500"
+        }`}>
+          {availablePlaces > 0 ? "متاح للحجز الفوري" : "غير متاح — مكتملة"}
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        {/* الأماكن المتاحة */}
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20 p-4">
+          <span className="block text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">الأماكن المتاحة</span>
+          <strong className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+            {availablePlaces > 0 ? `${availablePlaces} أسرة` : "٠ مكان"}
+          </strong>
+        </div>
+
+        {/* السعة والمشغول */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <span className="block text-xs font-semibold text-muted-foreground mb-1">المقاعد المشغولة</span>
+          <strong className="text-xl font-bold text-foreground">
+            {capacity - availablePlaces} من {capacity} أسرة
+          </strong>
+        </div>
+
+        {/* تاريخ بدء التوفر */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <span className="block text-xs font-semibold text-muted-foreground mb-1">متاح من تاريخ</span>
+          <strong className="text-sm font-bold text-foreground">
+            {property.availableFrom || "متاح الآن فوراً"}
+          </strong>
+        </div>
+
+        {/* حالة الوحدة */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <span className="block text-xs font-semibold text-muted-foreground mb-1">حالة الوحدة</span>
+          <strong className={`text-sm font-bold ${availablePlaces > 0 ? "text-emerald-600" : "text-red-500"}`}>
+            {availablePlaces > 0 ? "جاهزة للاستلام" : "مكتملة الحجز"}
+          </strong>
+        </div>
+      </div>
+    </section>
+
+    {/* 4. مواصفات وتفاصيل السكن */}
     <section className="section-rule mt-7 pt-6 border-t border-border">
       <h3 className="mb-4 text-lg font-bold">مواصفات وتفاصيل السكن</h3>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -690,10 +978,125 @@ function PropertyDetail({
       </div>
     </section>
 
-    {/* ملخص الموقع الجغرافي الدقيق */}
-    <section className="section-rule mt-7 pt-6 border-t border-border">
-      <h3 className="mb-3 text-lg font-bold">العنوان وتفاصيل الموقع الجغرافي</h3>
-      <div className="rounded-xl border border-border bg-card p-4 space-y-2.5" data-testid="location-summary">
+    {/* 5. جدول مواعيد الحجوزات والتقويم التفاعلي */}
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-calendar">
+      <h3 className="mb-1 text-lg font-bold">جدول مواعيد الحجوزات المتاحة</h3>
+      <p className="text-xs text-muted-foreground mb-4">اختر التاريخ المناسب لبدء معاينة أو حجز السكن مباشرة</p>
+
+      {/* تقويم تفاعلي جميل باللغة العربية */}
+      <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-sm font-bold text-foreground">جدول مواعيد الحجوزات (الشهور القادمة)</h4>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => {
+                setCalendarMonthOffset(prev => Math.max(0, prev - 1));
+              }}
+              disabled={calendarMonthOffset === 0}
+              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
+              data-testid="btn-calendar-prev"
+            >
+              &larr;
+            </button>
+            <span className="text-xs font-bold px-2 py-1 bg-muted rounded-md select-none">
+              {getCalendarMonthName(calendarMonthOffset)}
+            </span>
+            <button 
+              onClick={() => {
+                setCalendarMonthOffset(prev => Math.min(3, prev + 1));
+              }}
+              disabled={calendarMonthOffset === 3}
+              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
+              data-testid="btn-calendar-next"
+            >
+              &rarr;
+            </button>
+          </div>
+        </div>
+
+        {/* أسماء الأيام */}
+        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted-foreground mb-2">
+          {["ح", "ن", "ث", "ر", "خ", "ج", "س"].map(day => (
+            <div key={day} className="py-1">{day}</div>
+          ))}
+        </div>
+
+        {/* أيام التقويم */}
+        <div className="grid grid-cols-7 gap-1">
+          {getCalendarDays(calendarMonthOffset).map((dayObj, idx) => {
+            if (!dayObj) {
+              return <div key={`empty-${idx}`} className="aspect-square bg-transparent" />;
+            }
+            
+            const isToday = dayObj.isToday;
+            const status = getDayStatus(dayObj.date, property, availablePlaces);
+            
+            let statusClass = "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/25 border border-emerald-500/20 cursor-pointer hover:scale-105 active:scale-95";
+            let statusLabel = "متاح";
+            
+            if (status === "reserved") {
+              statusClass = "bg-amber-500/20 text-amber-700 hover:bg-amber-500/35 border border-amber-500/30 font-bold";
+              statusLabel = "محجوز";
+            } else if (status === "unavailable") {
+              statusClass = "bg-red-500/10 text-red-500 opacity-60 cursor-not-allowed border border-red-500/10";
+              statusLabel = "غير متاح";
+            }
+
+            const isSelectable = status === "available" && availablePlaces > 0;
+
+            return (
+              <div 
+                key={dayObj.formatted}
+                onClick={() => {
+                  if (isSelectable) {
+                    onBook(dayObj.formatted);
+                  }
+                }}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all select-none p-1 ${statusClass}`}
+                title={isSelectable ? `اضغط لحجز الموعد: ${dayObj.formatted}` : `${dayObj.formatted} - ${statusLabel}`}
+                data-testid={`calendar-day-${dayObj.formatted}`}
+              >
+                <span className="font-bold">{dayObj.day}</span>
+                <span className="text-[8px] font-medium opacity-80 scale-90">{statusLabel}</span>
+                {isToday && (
+                  <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* دليل التقويم */}
+        <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-emerald-500/25 border border-emerald-500/40 shrink-0" />
+            <span>متاح للحجز</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-amber-500/30 border border-amber-500/50 shrink-0" />
+            <span>محجوز</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-red-500/10 border border-red-500/20 shrink-0" />
+            <span>غير متاح / مكتملة</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* 6. خريطة OpenStreetMap والخدمات المحيطة بالعقار */}
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-nearby-amenities">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold">الخريطة والخدمات المحيطة بالعقار</h3>
+          <p className="text-xs text-muted-foreground">تصفح مسافات الشوارع وأوقات السير مجاناً عبر OpenStreetMap و Leaflet.js</p>
+        </div>
+        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[11px] font-bold text-emerald-600">
+          OpenStreetMap & Leaflet ✓
+        </span>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-4 space-y-2.5 mb-4" data-testid="location-summary">
         <div className="flex items-start gap-2 text-sm">
           <MapPin size={17} className="text-primary shrink-0 mt-0.5" />
           <div>
@@ -719,40 +1122,7 @@ function PropertyDetail({
           )}
         </div>
       </div>
-    </section>
 
-    {/* معلومات النموذج ثلاثي الأبعاد الآمن */}
-    {property.model3dUrl && (
-      <section className="section-rule mt-7 pt-6 border-t border-border">
-        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4" data-testid="badge-3d-available">
-          <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-blue-100 p-2.5 text-blue-600 shrink-0">
-              <Sparkle size={18} />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-blue-900">نموذج ثلاثي الأبعاد (3D Model) متوفر للعقار</h4>
-              <p className="mt-1 text-xs text-blue-800/80 leading-5">
-                تتوفر معاينة فراغية كاملة وتصميم ثلاثي الأبعاد تفاعلي آمن لهذه الوحدة السكنية. لحماية حقوق الخصوصية والأمان الفني للمالك والطلاب، يرجى تقديم طلب حجز أو التواصل مع دعم منصة مكاني للحصول على الرابط المعتمد رسميًا لتجربة التجول الافتراضي.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-    )}
-
-    {/* كل ما تحتاجه حولك: خريطة OpenStreetMap و Leaflet تفاعلية مجانية 100% */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-nearby-amenities">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold">الخريطة والخدمات المحيطة بالعقار</h3>
-          <p className="text-xs text-muted-foreground">تصفح مسافات الشوارع وأوقات السير مجاناً عبر OpenStreetMap و Leaflet.js</p>
-        </div>
-        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[11px] font-bold text-emerald-600">
-          OpenStreetMap & Leaflet ✓
-        </span>
-      </div>
-
-      {/* المكون التفاعلي لخريطة Leaflet المجانية */}
       <InteractiveLeafletMap
         propertyTitle={property.title}
         propertyAddress={property.address}
@@ -766,7 +1136,6 @@ function PropertyDetail({
         className="mb-4"
       />
 
-      {/* بطاقات الخدمات التفاعلية مقسمة حسب الفئات */}
       {isLoadingAmenities && dynamicAmenities.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
           <span className="inline-block animate-pulse ml-2">📍</span>
@@ -926,7 +1295,29 @@ function PropertyDetail({
       )}
     </section>
 
-    {/* سياسات وقوانين الإقامة بالتفصيل */}
+    {/* 7. معلومات المالك المعتمد (الاسم والتوثيق فقط دون أي وسيلة اتصال خاصة) */}
+    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-owner-profile">
+      <h3 className="mb-3 text-lg font-bold">معلومات المالك المعتمد</h3>
+      <div className="flex items-center gap-3.5 rounded-xl border border-border bg-card p-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg border border-primary/20 shrink-0">
+          {owner.fullName ? owner.fullName.charAt(0) : "م"}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <strong className="text-sm font-bold text-foreground truncate">{owner.fullName || "مالك معتمد في مكاني"}</strong>
+            {owner.isVerified && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600 shrink-0">
+                <ShieldCheck size={12} />
+                مالك موثق
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">عضو معتمد في شبكة ملاك مكاني الموثقين رسميًا</p>
+        </div>
+      </div>
+    </section>
+
+    {/* 8. سياسات وقوانين الإقامة بالتفصيل */}
     <section className="section-rule mt-7 pt-6 border-t border-border">
       <h3 className="mb-4 text-lg font-bold">سياسات الإقامة وقوانين العقار المعتمدة</h3>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -973,7 +1364,6 @@ function PropertyDetail({
           </div>
         )}
 
-        {/* سياسات عامة لحماية الطلاب إذا لم تكن البيانات مخصصة في لوحة المالك */}
         {!hasAnyCustomPolicy && (
           <>
             <div className="rounded-xl border border-border bg-card p-4">
@@ -997,145 +1387,7 @@ function PropertyDetail({
       </div>
     </section>
 
-    {/* مؤشر توفر الغرفة وجدول الحجوزات التفاعلي */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-calendar">
-      <h3 className="mb-2 text-lg font-bold">حالة التوفر وجدول الحجوزات</h3>
-      <p className="text-xs text-muted-foreground mb-4">تابع حالة توفر الأماكن السكنية الشاغرة وتواريخ الحجز الفعلي للوحدة مباشرة</p>
-      
-      {/* بطاقة ملخص التوفر */}
-      <div className="grid gap-3 sm:grid-cols-3 mb-6">
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
-          <div className="rounded-lg bg-emerald-100 p-2 text-emerald-600">
-            <CalendarDays size={18} />
-          </div>
-          <div>
-            <span className="block text-[11px] text-muted-foreground">تاريخ بداية التوفر</span>
-            <strong className="text-sm text-foreground">{property.availableFrom || "متاح الآن فوراً"}</strong>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
-          <div className="rounded-lg bg-primary/10 p-2 text-primary">
-            <Users size={18} />
-          </div>
-          <div>
-            <span className="block text-[11px] text-muted-foreground">الأماكن المتاحة</span>
-            <strong className="text-sm text-foreground">
-              {availablePlaces > 0 ? (
-                availablePlaces === 1 ? "مكان واحد شاغر" : `${availablePlaces} أماكن شاغرة`
-              ) : (
-                "مكتملة الحجز بالكامل"
-              )}
-            </strong>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
-          <span className={`h-3 w-3 rounded-full shrink-0 ${availablePlaces > 0 ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
-          <div>
-            <span className="block text-[11px] text-muted-foreground">الحالة الحالية للوحدة</span>
-            <strong className={`text-sm ${availablePlaces > 0 ? "text-emerald-600" : "text-red-500"}`}>
-              {availablePlaces > 0 ? "متاح للحجز الفوري" : "غير متاح — مكتملة"}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      {/* تقويم تفاعلي جميل باللغة العربية */}
-      <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h4 className="text-sm font-bold text-foreground">جدول مواعيد الحجوزات (الشهور القادمة)</h4>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => {
-                setCalendarMonthOffset(prev => Math.max(0, prev - 1));
-              }}
-              disabled={calendarMonthOffset === 0}
-              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
-              data-testid="btn-calendar-prev"
-            >
-              &larr;
-            </button>
-            <span className="text-xs font-bold px-2 py-1 bg-muted rounded-md select-none">
-              {getCalendarMonthName(calendarMonthOffset)}
-            </span>
-            <button 
-              onClick={() => {
-                setCalendarMonthOffset(prev => Math.min(3, prev + 1));
-              }}
-              disabled={calendarMonthOffset === 3}
-              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
-              data-testid="btn-calendar-next"
-            >
-              &rarr;
-            </button>
-          </div>
-        </div>
-
-        {/* أسماء الأيام */}
-        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted-foreground mb-2">
-          {["ح", "ن", "ث", "ر", "خ", "ج", "س"].map(day => (
-            <div key={day} className="py-1">{day}</div>
-          ))}
-        </div>
-
-        {/* أيام التقويم */}
-        <div className="grid grid-cols-7 gap-1">
-          {getCalendarDays(calendarMonthOffset).map((dayObj, idx) => {
-            if (!dayObj) {
-              return <div key={`empty-${idx}`} className="aspect-square bg-transparent" />;
-            }
-            
-            const isToday = dayObj.isToday;
-            const status = getDayStatus(dayObj.date, property, availablePlaces);
-            
-            let statusClass = "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/25 border border-emerald-500/20";
-            let statusLabel = "متاح";
-            
-            if (status === "reserved") {
-              statusClass = "bg-amber-500/20 text-amber-700 hover:bg-amber-500/35 border border-amber-500/30 font-bold";
-              statusLabel = "محجوز";
-            } else if (status === "unavailable") {
-              statusClass = "bg-red-500/10 text-red-500 opacity-60 cursor-not-allowed border border-red-500/10";
-              statusLabel = "غير متاح";
-            }
-
-            return (
-              <div 
-                key={dayObj.formatted}
-                className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all select-none p-1 ${statusClass}`}
-                title={`${dayObj.formatted} - ${statusLabel}`}
-                data-testid={`calendar-day-${dayObj.formatted}`}
-              >
-                <span className="font-bold">{dayObj.day}</span>
-                <span className="text-[8px] font-medium opacity-80 scale-90">{statusLabel}</span>
-                {isToday && (
-                  <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* دليل التقويم */}
-        <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-emerald-500/25 border border-emerald-500/40 shrink-0" />
-            <span>متاح للحجز</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-amber-500/30 border border-amber-500/50 shrink-0" />
-            <span>محجوز</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-red-500/10 border border-red-500/20 shrink-0" />
-            <span>غير متاح / مكتملة</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    {/* ما يقوله الطلاب */}
+    {/* 9. ما يقوله الطلاب وتقييماتهم */}
     <section className="section-rule mt-7 pt-6 border-t border-border">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
         <h3 className="text-lg font-bold">آراء وتقييمات الطلاب</h3>
@@ -1167,9 +1419,22 @@ function PropertyDetail({
       <Sparkles size={17} />
       إيجاد شريك سكن بالذكاء الاصطناعي
     </button>
-    <button onClick={onBook} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-bold text-primary-foreground hover:-translate-y-0.5 sm:flex-none sm:px-7" data-testid="button-open-booking">
+    <button 
+      onClick={() => {
+        if (availablePlaces > 0) {
+          onBook();
+        }
+      }} 
+      disabled={availablePlaces <= 0}
+      className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold sm:flex-none sm:px-7 ${
+        availablePlaces > 0 
+          ? "bg-primary text-primary-foreground hover:-translate-y-0.5" 
+          : "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+      }`} 
+      data-testid="button-open-booking"
+    >
       <CalendarDays size={17} />
-      احجز الآن
+      {availablePlaces > 0 ? "احجز الآن" : "غير متاح — مكتملة"}
     </button>
   </div>
 </Modal>;
@@ -1336,10 +1601,19 @@ function AppContent() {
   const [saved, setSaved] = useState<number[]>([]); 
   const [aiOpen, setAiOpen] = useState(false); 
   const [bookingOpen, setBookingOpen] = useState(false); 
+  const [bookingSelectedDate, setBookingSelectedDate] = useState<string | undefined>(undefined);
   const [filterTab, setFilterTab] = useState<"all" | "available" | "top">("all"); 
-  const [query, setQuery] = useState({ city: "", type: "", budget: "" }); 
+  const [query, setQuery] = useState({ 
+    city: "", 
+    type: "", 
+    budget: "", 
+    text: "", 
+    availableOnly: false, 
+    sort: "newest" 
+  }); 
   const [toast, setToast] = useState(""); 
   const [testimonial, setTestimonial] = useState(0);
+  const [studentTab, setStudentTab] = useState<"bookings" | "favorites" | "profile" | "support">("bookings");
 
   const refreshProperties = () => {
     setPlatformProperties(getAllPlatformProperties());
@@ -1384,13 +1658,69 @@ function AppContent() {
     }
   }, [platformProperties]);
 
-  const shown = useMemo(() => platformProperties.filter((p) => { 
-    const cityOkay = !query.city || p.university === query.city; 
-    const typeOkay = !query.type || p.roomType.includes(query.type.replace("شقة مشتركة", "شقة")); 
-    const budgetOkay = !query.budget || (query.budget.includes("٨٠٠") ? p.pricePerMonth < 800 : query.budget.includes("١٥٠٠") ? p.pricePerMonth >= 800 && p.pricePerMonth <= 1500 : query.budget.includes("أكثر") ? p.pricePerMonth > 3000 : p.pricePerMonth > 1500); 
-    const tabOkay = filterTab === "all" || (filterTab === "available" ? p.status === "متاح" : p.livabilityScore >= 87); 
-    return cityOkay && typeOkay && budgetOkay && tabOkay; 
-  }), [platformProperties, query, filterTab]);
+  const shown = useMemo(() => {
+    let list = platformProperties.filter((p) => { 
+      // CRITICAL SECURITY RULE: Students and public users MUST ONLY see "متاح" (approved & available) properties.
+      if (p.status !== "متاح") return false;
+
+      // Text search query matching
+      const qText = (query.text || "").trim().toLowerCase();
+      if (qText) {
+        const matches = 
+          p.title.toLowerCase().includes(qText) || 
+          p.city.toLowerCase().includes(qText) || 
+          p.university.toLowerCase().includes(qText) || 
+          p.address.toLowerCase().includes(qText) || 
+          (p.description && p.description.toLowerCase().includes(qText));
+        if (!matches) return false;
+      }
+
+      // City / University filter
+      if (query.city && !(p.university === query.city || p.city === query.city)) return false; 
+
+      // Room Type filter
+      if (query.type) {
+        const cleanType = query.type.replace("شقة مشتركة", "شقة");
+        if (!p.roomType.includes(cleanType)) return false;
+      }
+
+      // Budget filter
+      if (query.budget) {
+        if (query.budget.includes("٨٠٠")) {
+          if (p.pricePerMonth >= 800) return false;
+        } else if (query.budget.includes("١٥٠٠")) {
+          if (p.pricePerMonth < 800 || p.pricePerMonth > 1500) return false;
+        } else if (query.budget.includes("أكثر")) {
+          if (p.pricePerMonth <= 3000) return false;
+        } else {
+          if (p.pricePerMonth <= 1500) return false;
+        }
+      }
+
+      // Filter tabs
+      const avail = p.availablePlaces ?? Math.max(0, p.bedrooms - p.currentRoommates);
+      if (filterTab === "available" && avail <= 0) return false;
+      if (filterTab === "top" && p.livabilityScore < 87) return false;
+
+      // Available places only toggle
+      if (query.availableOnly && avail <= 0) return false;
+
+      return true; 
+    });
+
+    // Sorting order logic
+    if (query.sort === "price_asc") {
+      list.sort((a, b) => a.pricePerMonth - b.pricePerMonth);
+    } else if (query.sort === "price_desc") {
+      list.sort((a, b) => b.pricePerMonth - a.pricePerMonth);
+    } else if (query.sort === "livability") {
+      list.sort((a, b) => b.livabilityScore - a.livabilityScore);
+    } else {
+      list.sort((a, b) => b.id - a.id);
+    }
+
+    return list;
+  }, [platformProperties, query, filterTab]);
 
   // جلب وتحديث مفضلة الطالب من قاعدة بيانات PostgreSQL
   useEffect(() => {
@@ -1416,9 +1746,16 @@ function AppContent() {
     return () => window.removeEventListener("mkany_favorites_updated", handleFavUpdated);
   }, [isSignedIn, user?.role]);
 
-  const search = (city: string, type: string, budget: string) => { 
+  const search = (city: string, type: string, budget: string, text?: string, availableOnly?: boolean, sort?: string) => { 
     setActiveView("listings"); 
-    setQuery({ city, type, budget }); 
+    setQuery({ 
+      city, 
+      type, 
+      budget, 
+      text: text || "", 
+      availableOnly: Boolean(availableOnly), 
+      sort: sort || "newest" 
+    }); 
     window.setTimeout(() => document.getElementById("discover")?.scrollIntoView({ behavior: "smooth" }), 20); 
   };
 
@@ -1469,6 +1806,9 @@ function AppContent() {
         activeView={activeView} 
         setView={setActiveView} 
         openToast={setToast}
+        savedCount={saved.length}
+        studentTab={studentTab}
+        setStudentTab={setStudentTab}
       />
 
       {activeView === "listings" && (
@@ -1500,7 +1840,7 @@ function AppContent() {
                 <Search className="mx-auto mb-4 text-muted-foreground" size={30} />
                 <h3 className="font-bold">لم نجد وحدات بهذه المواصفات</h3>
                 <p className="mt-2 text-sm text-muted-foreground">جرّب تغيير المدينة أو الميزانية</p>
-                <button onClick={() => setQuery({ city: "", type: "", budget: "" })} className="mt-5 rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground" data-testid="button-reset-search">إظهار كل الوحدات</button>
+                <button onClick={() => setQuery({ city: "", type: "", budget: "", text: "", availableOnly: false, sort: "newest" })} className="mt-5 rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground" data-testid="button-reset-search">إظهار كل الوحدات</button>
               </div>
             )}
           </main>
@@ -1531,6 +1871,7 @@ function AppContent() {
           openToast={setToast}
           onExploreProperties={() => setActiveView("listings")}
           onViewPropertyModal={(p: unknown) => setSelected(p as Property)}
+          initialTab={studentTab}
         />
       )}
 
@@ -1562,7 +1903,10 @@ function AppContent() {
           property={selected} 
           onClose={() => setSelected(null)} 
           onAI={() => setAiOpen(true)} 
-          onBook={() => setBookingOpen(true)} 
+          onBook={(date?: string) => {
+            setBookingSelectedDate(date);
+            setBookingOpen(true);
+          }} 
           saved={saved.includes(selected.id)}
           onSave={() => toggleSave(selected.id)}
         />
@@ -1573,6 +1917,7 @@ function AppContent() {
       {bookingOpen && selected && (
         <BookingReceiptFlow 
           property={selected} 
+          initialAppointmentDate={bookingSelectedDate}
           onClose={() => setBookingOpen(false)} 
           openToast={setToast}
           onGoToStudentDashboard={() => {

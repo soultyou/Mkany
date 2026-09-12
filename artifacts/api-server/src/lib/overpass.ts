@@ -145,7 +145,7 @@ out center;`;
         clearTimeout(timeoutId);
 
         if (response.ok) {
-          const data = await response.json();
+          const data = (await response.json()) as any;
           if (data && Array.isArray(data.elements)) {
             elements = data.elements;
             break;
