@@ -25,7 +25,7 @@ export async function getNotificationsApi(): Promise<Notification[]> {
     const data: any = await apiFetch("/api/notifications");
     return Array.isArray(data) ? data : [];
   } catch (err: any) {
-    if (err?.status !== 401) {
+    if (err?.status !== 401 && !err?.message?.includes("Failed to fetch")) {
       console.error("Failed to fetch notifications:", err);
     }
     return [];

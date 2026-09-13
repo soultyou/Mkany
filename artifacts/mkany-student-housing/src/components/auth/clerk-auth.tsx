@@ -138,7 +138,7 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
           isVerified: profile?.isVerified ?? false,
         });
       } catch (e: any) {
-        if (e?.status !== 401) {
+        if (e?.status !== 401 && !e?.message?.includes("Failed to fetch")) {
           console.error("Failed to fetch profile from DB", e);
         }
         // Fallback initialization if backend profile endpoint fails
@@ -261,11 +261,51 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     university?: string;
     avatarUrl?: string;
   }) => {
+    let token: string | null = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      if (!clerkLoaded || !isSignedIn || !clerkInstance || !clerkInstance.session) {
+        onToast?.("جارٍ تجهيز الحساب وجلسة الاتصال...");
+        await new Promise((r) => setTimeout(r, 400));
+        attempts++;
+        continue;
+      }
+
+      try {
+        token = await clerkInstance.session.getToken();
+        if (token) {
+          setAuthTokenGetter(async () => clerkInstance!.session!.getToken());
+          break;
+        }
+      } catch {
+        // ignore and retry briefly
+      }
+
+      onToast?.("جارٍ تجهيز الحساب وجلسة الاتصال...");
+      await new Promise((r) => setTimeout(r, 400));
+      attempts++;
+    }
+
+    if (!token && clerkInstance?.session) {
+      try {
+        token = await clerkInstance.session.getToken();
+      } catch {
+        // final attempt
+      }
+    }
+
+    if (!isSignedIn || !clerkInstance?.session || !token) {
+      throw new Error("جلسة تسجيل الدخول غير جاهزة أو انتهت صلاحيتها. يرجى إعادة تسجيل الدخول.");
+    }
+
     try {
       const updated: any = await apiFetch("/api/profile/onboarding", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify(onboardingData),
       });
@@ -290,7 +330,19 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       }
     } catch (error: any) {
       console.error("Failed to complete onboarding", error);
-      throw error;
+      let errMsg = "حدث خطأ أثناء حفظ بيانات الحساب.";
+      if (error?.status === 401) {
+        errMsg = "انتهت صلاحية جلسة تسجيل الدخول (401). يرجى إعادة تسجيل الدخول.";
+      } else if (error?.status === 400) {
+        errMsg = error?.message || "بيانات غير صالحة لإكمال التسجيل (400).";
+      } else if (error?.status >= 500) {
+        errMsg = "حدث خطأ في الخادم أو قاعدة البيانات. يرجى المحاولة لاحقاً.";
+      } else if (error?.message?.includes("Failed to fetch") || error?.name === "TypeError") {
+        errMsg = "تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم.";
+      } else if (error?.message) {
+        errMsg = error.message;
+      }
+      throw new Error(errMsg);
     }
   };
 

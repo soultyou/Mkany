@@ -50,7 +50,7 @@ export async function getStudentFavoritesApi(): Promise<FavoritesResponse> {
       propertyIds: Array.isArray(data?.propertyIds) ? data.propertyIds : [],
     };
   } catch (err: any) {
-    if (err?.status !== 401) {
+    if (err?.status !== 401 && !err?.message?.includes("Failed to fetch")) {
       console.error("Failed to fetch student favorites:", err);
     }
     return { favorites: [], propertyIds: [] };
