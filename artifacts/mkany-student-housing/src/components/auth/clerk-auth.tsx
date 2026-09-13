@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
-import { ClerkProvider, useAuth as useClerkAuth, useUser as useClerkUser, SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton, SignOutButton as ClerkSignOutButton, useClerk } from "@clerk/clerk-react";
+import { useAuth as useClerkAuth, useUser as useClerkUser, SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton, SignOutButton as ClerkSignOutButton, useClerk } from "@clerk/clerk-react";
 import { updateProfile, getProfile, setAuthTokenGetter } from "@workspace/api-client-react";
 import { apiFetch } from "@/lib/api-client";
 
@@ -72,11 +72,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const publishableKey =
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
-  import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-  "";
 
 export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; onToast?: (msg: string) => void }) {
   const { isLoaded, isSignedIn, getToken } = useClerkAuth();
@@ -190,7 +185,6 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
   };
 
   return (
-    <ClerkProvider publishableKey={publishableKey}>
       <AuthContext.Provider value={{
         clerkLoaded: isLoaded,
         clerkError: null,
@@ -207,7 +201,6 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
       }}>
         {children}
       </AuthContext.Provider>
-    </ClerkProvider>
   );
 }
 
