@@ -15,19 +15,19 @@ export interface Notification {
   referenceId?: string | null;
 }
 
+import { apiFetch } from "./api-client";
+
 /**
  * جلب إشعارات المستخدم الحالي من الخادم
  */
 export async function getNotificationsApi(): Promise<Notification[]> {
   try {
-    const res = await fetch("/api/notifications");
-    if (!res.ok) {
-      return [];
-    }
-    const data = await res.json();
+    const data: any = await apiFetch("/api/notifications");
     return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error("Failed to fetch notifications:", err);
+  } catch (err: any) {
+    if (err?.status !== 401) {
+      console.error("Failed to fetch notifications:", err);
+    }
     return [];
   }
 }
@@ -37,10 +37,10 @@ export async function getNotificationsApi(): Promise<Notification[]> {
  */
 export async function markAllReadApi(): Promise<boolean> {
   try {
-    const res = await fetch("/api/notifications/read-all", {
+    await apiFetch("/api/notifications/read-all", {
       method: "PATCH",
     });
-    return res.ok;
+    return true;
   } catch (err) {
     console.error("Failed to mark all notifications as read:", err);
     return false;
@@ -52,10 +52,10 @@ export async function markAllReadApi(): Promise<boolean> {
  */
 export async function markReadApi(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/notifications/${id}/read`, {
+    await apiFetch(`/api/notifications/${id}/read`, {
       method: "PATCH",
     });
-    return res.ok;
+    return true;
   } catch (err) {
     console.error(`Failed to mark notification ${id} as read:`, err);
     return false;

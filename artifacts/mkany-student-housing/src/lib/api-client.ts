@@ -1,4 +1,15 @@
-import { customFetch, ApiError, type CustomFetchOptions } from "@workspace/api-client-react";
+import { customFetch, ApiError, setBaseUrl, type CustomFetchOptions } from "@workspace/api-client-react";
+
+const VITE_API_URL = import.meta.env.VITE_API_URL;
+if (VITE_API_URL) {
+  setBaseUrl(VITE_API_URL);
+}
+
+export function getApiUrl(endpoint: string): string {
+  if (endpoint.startsWith("http")) return endpoint;
+  const clean = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return VITE_API_URL ? `${VITE_API_URL.replace(/\/+$/, "")}${clean}` : clean;
+}
 
 /**
  * Centralized Authenticated API Client for MKANY Student Housing

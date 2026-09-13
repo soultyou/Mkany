@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Bell, Check, Trash2, BellOff, ExternalLink } from "lucide-react";
+import { useUser } from "@/components/auth/clerk-auth";
 import { 
   Notification, 
   getNotificationsApi, 
@@ -12,23 +13,26 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { isLoaded, isSignedIn } = useUser();
 
   // Fetch notifications
   const fetchNotifications = async () => {
+    if (!isLoaded || !isSignedIn) return;
     try {
       const data = await getNotificationsApi();
       setNotifications(data);
     } catch (err) {
-      console.error("Failed to load notifications:", err);
+      // Suppress when unauthenticated
     }
   };
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchNotifications();
     // Auto-refresh every 30 seconds to keep live notifications updated
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   // Close dropdown on click outside
   useEffect(() => {

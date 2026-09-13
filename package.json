@@ -12,7 +12,8 @@
     "dev": "npm run dev:api & npm run dev:frontend",
     "dev:api": "API_PORT=3001 npm --workspace=@workspace/api-server run dev",
     "dev:frontend": "npm --workspace=@workspace/mkany-student-housing run dev",
-    "build": "npm --workspace=@workspace/api-server run build && npm --workspace=@workspace/mkany-student-housing run build",
+    "build": "npm --workspace=@workspace/api-client-react run build && npm --workspace=@workspace/api-server run build && npm --workspace=@workspace/mkany-student-housing run build",
+    "start": "node artifacts/api-server/dist/index.mjs",
     "lint": "npm --workspace=@workspace/mkany-student-housing run typecheck"
   },
   "dependencies": {

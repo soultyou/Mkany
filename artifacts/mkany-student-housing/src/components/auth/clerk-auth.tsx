@@ -1,6 +1,7 @@
 import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
 import { Clerk } from "@clerk/clerk-js";
 import { updateProfile, getProfile, setAuthTokenGetter } from "@workspace/api-client-react";
+import { apiFetch } from "@/lib/api-client";
 
 export const EGYPTIAN_UNIVERSITIES = [
   "جامعة كفر الشيخ", "جامعة المنصورة", "جامعة طنطا", "جامعة الإسكندرية", "جامعة القاهرة",
@@ -96,13 +97,28 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     setIsSignedIn(signedIn);
 
     if (session) {
-      setAuthTokenGetter(async () => await session.getToken());
+      try {
+        const token = await session.getToken();
+        if (token) {
+          setAuthTokenGetter(async () => await session.getToken());
+        } else {
+          setAuthTokenGetter(null);
+        }
+      } catch {
+        setAuthTokenGetter(null);
+      }
     } else {
       setAuthTokenGetter(null);
     }
 
     if (user && session) {
       try {
+        const token = await session.getToken().catch(() => null);
+        if (!token) {
+          setIsHydrated(true);
+          return;
+        }
+
         // Fetch authoritative profile directly from PostgreSQL DB endpoint
         const profile = await getProfile();
         const dbRole = (profile?.role as "student" | "owner" | "admin" | "super_admin") || "student";
@@ -121,8 +137,10 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
           propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
           isVerified: profile?.isVerified ?? false,
         });
-      } catch (e) {
-        console.error("Failed to fetch profile from DB", e);
+      } catch (e: any) {
+        if (e?.status !== 401) {
+          console.error("Failed to fetch profile from DB", e);
+        }
         // Fallback initialization if backend profile endpoint fails
         setSessionUser({
           id: user.id,
@@ -244,23 +262,14 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     avatarUrl?: string;
   }) => {
     try {
-      const response = await fetch("/api/profile/onboarding", {
+      const updated: any = await apiFetch("/api/profile/onboarding", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(clerkInstance?.session ? { Authorization: `Bearer ${await clerkInstance.session.getToken()}` } : {}),
         },
         body: JSON.stringify(onboardingData),
       });
 
-      if (!response.ok) {
-        const errorRes = await response.json().catch(() => ({}));
-        const message = errorRes?.error || "حدث خطأ أثناء حفظ بيانات التسجيل.";
-        onToast?.(message);
-        throw new Error(message);
-      }
-
-      const updated = await response.json();
       if (updated) {
         setSessionUser({
           id: updated.id,

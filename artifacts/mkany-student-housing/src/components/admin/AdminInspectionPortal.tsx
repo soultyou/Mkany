@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "@/lib/api-client";
 import { 
   Building2, 
   ShieldCheck, 
@@ -133,13 +134,8 @@ export function AdminInspectionPortal({
   const fetchReservedProperties = async () => {
     setIsLoadingReserved(true);
     try {
-      const res = await fetch("/api/bookings/admin/properties-reservations");
-      if (res.ok) {
-        const data = await res.json();
-        setReservedProperties(data);
-      } else {
-        openToast("فشل تحميل الشقق المحجوزة من الخادم");
-      }
+      const data = await apiFetch("/api/bookings/admin/properties-reservations");
+      setReservedProperties(data || []);
     } catch (err) {
       console.error(err);
       openToast("خطأ أثناء الاتصال بالخادم لتحميل الشقق المحجوزة");
@@ -524,13 +520,8 @@ export function AdminInspectionPortal({
         url += `?${queryStr}`;
       }
 
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setFinancialAnalytics(data);
-      } else {
-        openToast("فشل تحميل البيانات المالية والتحليلات من الخادم");
-      }
+      const data = await apiFetch(url);
+      setFinancialAnalytics(data);
     } catch (err) {
       console.error(err);
       openToast("خطأ أثناء الاتصال بالخادم لتحميل التقارير المالية");

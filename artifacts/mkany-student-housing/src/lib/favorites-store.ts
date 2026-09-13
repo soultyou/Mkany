@@ -37,22 +37,22 @@ export interface FavoritesResponse {
   propertyIds: number[];
 }
 
+import { apiFetch } from "./api-client";
+
 /**
  * جلب قائمة العقارات المفضلة للطالب من PostgreSQL
  */
 export async function getStudentFavoritesApi(): Promise<FavoritesResponse> {
   try {
-    const res = await fetch("/api/favorites");
-    if (!res.ok) {
-      return { favorites: [], propertyIds: [] };
-    }
-    const data = await res.json();
+    const data: any = await apiFetch("/api/favorites");
     return {
-      favorites: Array.isArray(data.favorites) ? data.favorites : [],
-      propertyIds: Array.isArray(data.propertyIds) ? data.propertyIds : [],
+      favorites: Array.isArray(data?.favorites) ? data.favorites : [],
+      propertyIds: Array.isArray(data?.propertyIds) ? data.propertyIds : [],
     };
-  } catch (err) {
-    console.error("Failed to fetch student favorites:", err);
+  } catch (err: any) {
+    if (err?.status !== 401) {
+      console.error("Failed to fetch student favorites:", err);
+    }
     return { favorites: [], propertyIds: [] };
   }
 }
@@ -62,25 +62,16 @@ export async function getStudentFavoritesApi(): Promise<FavoritesResponse> {
  */
 export async function addFavoriteApi(propertyId: number): Promise<{ success: boolean; message?: string }> {
   try {
-    const res = await fetch("/api/favorites", {
+    await apiFetch("/api/favorites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ propertyId }),
     });
 
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      return { 
-        success: false, 
-        message: data.message || "فشل في إضافة العقار للمفضلة" 
-      };
-    }
-
     return { success: true };
   } catch (err: any) {
     console.error("Failed to add favorite:", err);
-    return { success: false, message: err?.message || "فشل الاتصال بالخادم" };
+    return { success: false, message: err?.message || "فشل في إضافة العقار للمفضلة" };
   }
 }
 
@@ -89,22 +80,13 @@ export async function addFavoriteApi(propertyId: number): Promise<{ success: boo
  */
 export async function removeFavoriteApi(propertyId: number): Promise<{ success: boolean; message?: string }> {
   try {
-    const res = await fetch(`/api/favorites/${propertyId}`, {
+    await apiFetch(`/api/favorites/${propertyId}`, {
       method: "DELETE",
     });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      return { 
-        success: false, 
-        message: data.message || "فشل في إزالة العقار من المفضلة" 
-      };
-    }
 
     return { success: true };
   } catch (err: any) {
     console.error("Failed to remove favorite:", err);
-    return { success: false, message: err?.message || "فشل الاتصال بالخادم" };
+    return { success: false, message: err?.message || "فشل في إزالة العقار من المفضلة" };
   }
 }

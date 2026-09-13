@@ -38,6 +38,7 @@ const getAllowedOrigins = (): Set<string> => {
     process.env.ADMIN_URL,
     process.env.VITE_CLIENT_URL,
     process.env.VITE_ADMIN_URL,
+    process.env.VITE_API_URL,
     process.env.APP_URL,
     process.env.SHARED_APP_URL,
     process.env.DEV_APP_URL,
@@ -48,6 +49,9 @@ const getAllowedOrigins = (): Set<string> => {
       envVar.split(",").map((s) => s.trim()).filter(Boolean).forEach((o) => origins.add(o));
     }
   }
+
+  // Always include published frontend origin and Cloud Run / AI Studio origins
+  origins.add("https://mkany-student-housing.ai.studio");
 
   // Always include local dev origins when not in production
   if (process.env.NODE_ENV !== "production") {
@@ -73,6 +77,11 @@ app.use(
       const allowedOrigins = getAllowedOrigins();
 
       if (allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow any AI Studio or Cloud Run preview/published domain
+      if (origin.endsWith(".ai.studio") || origin.endsWith(".run.app") || origin.includes("ai.studio")) {
         return callback(null, true);
       }
 
@@ -127,5 +136,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use("/api", router);
+
+// Serve static frontend build and SPA fallback for non-API routes
+const distPath = path.resolve(__dirname, "../../dist");
+app.use(express.static(distPath));
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api")) {
+    return next();
+  }
+  res.sendFile(path.join(distPath, "index.html"));
+});
 
 export default app;

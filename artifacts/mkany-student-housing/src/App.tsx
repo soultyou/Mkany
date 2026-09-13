@@ -124,9 +124,9 @@ function Header({
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-xl">
       <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <button className="md:hidden rounded-lg border border-border p-2 text-muted-foreground" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة" data-testid="button-open-menu"><Menu size={21} /></button>
-        <button onClick={handleLogoClick} className="flex items-center gap-2 text-right" aria-label="العودة للرئيسية" data-testid="button-logo">
-          <img src={logo} alt="مكاني" className="logo-mark h-14 w-14 object-contain" />
-          <span className="hidden text-right leading-tight sm:block"><strong className="block text-lg tracking-wide">MKANY</strong><small className="text-[10px] text-muted-foreground">سكنك يبدأ من هنا</small></span>
+        <button onClick={handleLogoClick} className="flex items-center gap-3 py-1 group text-right" aria-label="العودة للرئيسية" data-testid="button-logo">
+          <img src={logo} alt="مكاني" className="logo-mark h-11 w-11 sm:h-12 sm:w-12 object-contain shrink-0 group-hover:scale-105 transition-transform" />
+          <span className="hidden text-right leading-tight sm:block"><strong className="block text-base sm:text-lg font-black tracking-wide">MKANY</strong><small className="text-[10px] text-muted-foreground block font-medium">سكنك يبدأ من هنا</small></span>
         </button>
         <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground md:flex">
           <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
@@ -1477,8 +1477,9 @@ function Hero({ onSearch, onAI }: { onSearch: (c: string, t: string, b: string) 
           <Sparkles size={14} />سكن طلابي موثّق بالذكاء الاصطناعي
         </div>
         
-        <h1 className="max-w-2xl text-4xl font-extrabold leading-[1.35] tracking-tight sm:text-6xl">
-          اسكن بذكاء،<br /><span className="text-primary">ادرس بثقة</span>
+        <h1 className="max-w-2xl tracking-tight">
+          <span className="block text-6xl sm:text-8xl font-black text-primary mb-3 sm:mb-4 tracking-tight">مكاني</span>
+          <span className="block text-lg sm:text-xl font-normal text-muted-foreground/90 tracking-wide mt-2 sm:mt-3">مش بس سكن... ده حد يفهمك</span>
         </h1>
 
         {/* النبذة التعريفية الرسمية لـ MKANY */}
@@ -1531,17 +1532,19 @@ function Footer({
   onGoOwnersPublic, 
   onGoOwnerDashboard, 
   onGoStudentDashboard,
+  onGoStudentSupport,
 }: { 
   openToast: (t: string) => void;
   onGoOwnersPublic: () => void;
   onGoOwnerDashboard: () => void;
   onGoStudentDashboard: () => void;
+  onGoStudentSupport: () => void;
 }) { 
   const { user } = useUser();
   const isStudent = user?.role === "student";
   const isOwner = user?.role === "owner";
 
-  return <footer className="border-t border-border bg-card/50"><div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8"><div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]"><div><img src={logo} alt="مكاني" className="logo-mark mb-3 h-16 w-16 object-contain" /><p className="text-sm font-semibold">اسكن بذكاء، ادرس بثقة</p><p className="mt-3 max-w-xs text-xs leading-6 text-muted-foreground">مكاني هي المنصة الذكية الأولى المتخصصة في تأمين وسكن الطلاب بجامعات مصر، تقدم وحدات موثقة، مطابقة ذكية، وعقود إلكترونية آمنة تضمن حقوق الطرفين.</p><div className="mt-5 flex gap-2 text-muted-foreground"><button onClick={() => openToast("تابعنا على إنستجرام")} aria-label="إنستجرام" data-testid="button-instagram"><Instagram size={17} /></button><button onClick={() => openToast("تابعنا على لينكدإن")} aria-label="لينكدإن" data-testid="button-linkedin"><Linkedin size={17} /></button><button onClick={() => openToast("تابعنا على فيسبوك")} aria-label="فيسبوك" data-testid="button-facebook"><Facebook size={17} /></button></div></div>
+  return <footer className="border-t border-border bg-card/50"><div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8"><div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]"><div><img src={logo} alt="مكاني" className="logo-mark mb-3 h-16 w-16 object-contain" /><p className="text-sm font-semibold">مكاني — مش بس سكن... ده حد يفهمك</p><p className="mt-3 max-w-xs text-xs leading-6 text-muted-foreground">مكاني هي المنصة الذكية الأولى المتخصصة في تأمين وسكن الطلاب بجامعات مصر، تقدم وحدات موثقة، مطابقة ذكية، وعقود إلكترونية آمنة تضمن حقوق الطرفين.</p><div className="mt-5 flex items-center gap-3 text-muted-foreground"><button onClick={() => openToast("تابعنا على إنستجرام")} aria-label="إنستجرام" data-testid="button-instagram" className="hover:text-primary transition-colors p-1"><Instagram size={18} /></button><button onClick={() => openToast("تابعنا على لينكدإن")} aria-label="لينكدإن" data-testid="button-linkedin" className="hover:text-primary transition-colors p-1"><Linkedin size={18} /></button><a href="https://www.facebook.com/profile.php?id=61587153651455" target="_blank" rel="noopener noreferrer" aria-label="فيسبوك" data-testid="button-facebook" className="hover:text-primary transition-colors p-1"><Facebook size={18} /></a><a href="https://wa.me/201055332242" target="_blank" rel="noopener noreferrer" aria-label="واتساب" data-testid="button-whatsapp" className="hover:text-primary transition-colors p-1"><MessageCircle size={18} /></a></div></div>
   <div><h3 className="mb-4 text-sm font-bold">المنصة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={() => openToast("تصفح الوحدات المتاحة")} className="block text-right hover:text-primary">اكتشف السكن</button><button onClick={() => openToast("جرب مطابقة شركاء السكن بالذكاء الاصطناعي")} className="block text-right hover:text-primary">المطابقة الذكية</button>
   {!isOwner && (
     <button onClick={onGoStudentDashboard} className="block text-right text-primary font-bold hover:underline" data-testid="footer-link-student-dashboard">لوحة الطالب وحجوزاتي</button>
@@ -1554,8 +1557,8 @@ function Footer({
       <button onClick={() => openToast("رسوم الإدراج السنوية ١,٠٠٠ جنيه فقط لكل وحدة شاملة المعاينة والتصوير 360°")} className="block text-right hover:text-primary">رسوم الإدراج والباقات</button>
     </div></div>
   )}
-  <div><h3 className="mb-4 text-sm font-bold">الدعم والشركة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={() => openToast("مركز مساعدة مكاني متاح على مدار الساعة عبر الواتساب: 01055332242")} className="block text-right hover:text-primary">مركز المساعدة والواتساب</button><button onClick={() => openToast("فريق الدعم: support@mkany.eg")} className="block text-right hover:text-primary">تواصل معنا</button><button onClick={() => openToast("تقرير السوق متاح للمستثمرين المسجلين")} className="block text-right hover:text-primary">تقرير السوق للمستثمرين <LockKeyhole className="inline" size={11} /></button></div></div>
-  </div><div className="mt-10 flex flex-wrap gap-3 border-t border-border pt-6 text-[11px] font-semibold text-muted-foreground"><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><LockKeyhole size={13} className="text-primary" />SSL آمن</span><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><FileText size={13} className="text-primary" />رخصة رقم EG-2024-PROP</span><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><Crown size={13} className="text-amber-500" />أفضل ناشئة ٢٠٢٤</span></div><div className="mt-6 flex flex-col justify-between gap-2 text-xs text-muted-foreground sm:flex-row"><span>© ٢٠٢٤ مكاني — جميع الحقوق محفوظة</span><span>صنع للطلاب والملاك في مصر</span></div></div></footer>; 
+  <div><h3 className="mb-4 text-sm font-bold">الدعم والشركة</h3><div className="space-y-3 text-xs text-muted-foreground"><button onClick={onGoStudentSupport} className="block text-right hover:text-primary transition-colors" data-testid="footer-link-support">مركز المساعدة</button><a href="https://wa.me/201055332242" target="_blank" rel="noopener noreferrer" className="block text-right hover:text-primary transition-colors" data-testid="footer-link-contact">تواصل معنا</a><button onClick={() => openToast("تقرير السوق متاح للمستثمرين المسجلين")} className="block text-right hover:text-primary">تقرير السوق للمستثمرين <LockKeyhole className="inline" size={11} /></button></div></div>
+  </div><div className="mt-10 flex flex-wrap gap-3 border-t border-border pt-6 text-[11px] font-semibold text-muted-foreground"><span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5"><LockKeyhole size={13} className="text-primary" />SSL آمن</span></div><div className="mt-6 flex flex-col justify-between gap-2 text-xs text-muted-foreground sm:flex-row"><span>© ٢٠٢٦ مكاني — جميع الحقوق محفوظة</span><span>صنع للطلاب والملاك في مصر</span></div></div></footer>; 
 }
 
 function AppContent() {
@@ -1896,6 +1899,7 @@ function AppContent() {
         onGoOwnersPublic={() => setActiveView("ownerPublic")}
         onGoOwnerDashboard={() => setActiveView("ownerDashboard")}
         onGoStudentDashboard={() => setActiveView("studentDashboard")}
+        onGoStudentSupport={() => { setActiveView("studentDashboard"); setStudentTab("support"); }}
       />
 
       {selected && (

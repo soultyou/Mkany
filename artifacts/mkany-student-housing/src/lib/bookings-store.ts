@@ -46,14 +46,14 @@ export interface StudentBooking {
   student?: any;
 }
 
+import { apiFetch } from "./api-client";
+
 /**
  * جلب حجوزات الطالب الحالي من قاعدة البيانات
  */
 export async function getStudentBookingsApi(): Promise<StudentBooking[]> {
   try {
-    const res = await fetch("/api/bookings/my-bookings");
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await apiFetch<StudentBooking[]>("/api/bookings/my-bookings");
     return Array.isArray(data) ? data : [];
   } catch (err) {
     console.error("Failed to fetch student bookings:", err);
@@ -74,18 +74,15 @@ export async function createBookingApi(data: {
   appointmentDate?: string;
   appointmentTime?: string;
 }): Promise<StudentBooking> {
-  const res = await fetch("/api/bookings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+  try {
+    return await apiFetch<StudentBooking>("/api/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  } catch (err: any) {
     throw new Error(err.message || "فشل تسجيل الحجز في قاعدة البيانات");
   }
-
-  return await res.json();
 }
 
 /**
@@ -93,9 +90,7 @@ export async function createBookingApi(data: {
  */
 export async function getOwnerBookingsApi(): Promise<StudentBooking[]> {
   try {
-    const res = await fetch("/api/bookings/owner-bookings");
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await apiFetch<StudentBooking[]>("/api/bookings/owner-bookings");
     return Array.isArray(data) ? data : [];
   } catch (err) {
     console.error("Failed to fetch owner bookings:", err);
@@ -108,9 +103,7 @@ export async function getOwnerBookingsApi(): Promise<StudentBooking[]> {
  */
 export async function getAdminBookingsApi(): Promise<StudentBooking[]> {
   try {
-    const res = await fetch("/api/bookings/admin");
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await apiFetch<StudentBooking[]>("/api/bookings/admin");
     return Array.isArray(data) ? data : [];
   } catch (err) {
     console.error("Failed to fetch admin bookings:", err);
@@ -123,9 +116,7 @@ export async function getAdminBookingsApi(): Promise<StudentBooking[]> {
  */
 export async function getBookingByIdApi(bookingId: string): Promise<StudentBooking | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}`);
-    if (!res.ok) return null;
-    return await res.json();
+    return await apiFetch<StudentBooking>(`/api/bookings/${bookingId}`);
   } catch (err) {
     console.error("Failed to fetch booking by id:", err);
     return null;
@@ -143,18 +134,17 @@ export async function updateBookingStatusApi(
   appointmentTime?: string
 ): Promise<StudentBooking | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/status`, {
+    return await apiFetch<StudentBooking>(`/api/bookings/${bookingId}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, adminNotes, appointmentDate, appointmentTime }),
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to update booking status:", err);
     return null;
   }
 }
+
 
 // Fallback synchronous methods kept for backward compatibility where needed
 export function getAllBookings(): StudentBooking[] {
@@ -254,9 +244,8 @@ export interface RentPayment {
  */
 export async function getRentPaymentsApi(bookingId: string): Promise<RentPayment[]> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/rent-payments`);
-    if (!res.ok) return [];
-    return await res.json();
+    const data = await apiFetch<RentPayment[]>(`/api/bookings/${bookingId}/rent-payments`);
+    return Array.isArray(data) ? data : [];
   } catch (err) {
     console.error("Failed to fetch rent payments:", err);
     return [];
@@ -279,13 +268,11 @@ export async function updateContractApi(
   }
 ): Promise<StudentBooking | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/contract`, {
+    return await apiFetch<StudentBooking>(`/api/bookings/${bookingId}/contract`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to update contract:", err);
     return null;
@@ -301,13 +288,11 @@ export async function uploadRentReceiptApi(
   receiptImageUrl: string
 ): Promise<RentPayment | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/upload-receipt`, {
+    return await apiFetch<RentPayment>(`/api/bookings/${bookingId}/rent-payments/${paymentId}/upload-receipt`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ receiptImageUrl }),
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to upload rent receipt:", err);
     return null;
@@ -319,11 +304,9 @@ export async function uploadRentReceiptApi(
  */
 export async function approveRentPaymentApi(bookingId: string, paymentId: string): Promise<RentPayment | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/approve`, {
+    return await apiFetch<RentPayment>(`/api/bookings/${bookingId}/rent-payments/${paymentId}/approve`, {
       method: "POST",
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to approve rent payment:", err);
     return null;
@@ -335,11 +318,9 @@ export async function approveRentPaymentApi(bookingId: string, paymentId: string
  */
 export async function rejectRentPaymentApi(bookingId: string, paymentId: string): Promise<RentPayment | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/reject`, {
+    return await apiFetch<RentPayment>(`/api/bookings/${bookingId}/rent-payments/${paymentId}/reject`, {
       method: "POST",
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to reject rent payment:", err);
     return null;
@@ -359,13 +340,11 @@ export async function recordManualRentPaymentApi(
   }
 ): Promise<RentPayment | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/rent-payments/${paymentId}/manual-pay`, {
+    return await apiFetch<RentPayment>(`/api/bookings/${bookingId}/rent-payments/${paymentId}/manual-pay`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to record manual payment:", err);
     return null;
@@ -380,13 +359,11 @@ export async function uploadSubscriptionReceiptApi(
   receiptImageUrl: string
 ): Promise<StudentBooking | null> {
   try {
-    const res = await fetch(`/api/bookings/${bookingId}/subscription/upload`, {
+    return await apiFetch<StudentBooking>(`/api/bookings/${bookingId}/subscription/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ receiptImageUrl }),
     });
-    if (!res.ok) return null;
-    return await res.json();
   } catch (err) {
     console.error("Failed to upload subscription receipt:", err);
     return null;

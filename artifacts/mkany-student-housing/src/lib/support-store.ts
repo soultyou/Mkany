@@ -72,22 +72,13 @@ export const SUPPORT_STATUS_LABELS: Record<string, { label: string; color: strin
   },
 };
 
+import { apiFetch } from "./api-client";
+
 /**
  * جلب محادثات الدعم الخاصة بالمستخدم الحالي (طالب أو مالك)
  */
 export async function getMySupportConversationsApi(): Promise<SupportConversationItem[]> {
-  const res = await fetch("/api/support/conversations", {
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "تعذر جلب قائمة محادثات الدعم");
-  }
-
-  const data = await res.json();
+  const data: any = await apiFetch("/api/support/conversations");
   return data.conversations || [];
 }
 
@@ -95,18 +86,7 @@ export async function getMySupportConversationsApi(): Promise<SupportConversatio
  * جلب تفاصيل محادثة دعم ورسائلها
  */
 export async function getSupportConversationDetailsApi(id: string): Promise<SupportConversationItem> {
-  const res = await fetch(`/api/support/conversations/${encodeURIComponent(id)}`, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "تعذر جلب تفاصيل محادثة الدعم");
-  }
-
-  const data = await res.json();
+  const data: any = await apiFetch(`/api/support/conversations/${encodeURIComponent(id)}`);
   return data.conversation;
 }
 
@@ -119,20 +99,13 @@ export async function createSupportConversationApi(params: {
   message: string;
   priority?: "low" | "normal" | "high" | "urgent";
 }): Promise<SupportConversationItem> {
-  const res = await fetch("/api/support/conversations", {
+  const data: any = await apiFetch("/api/support/conversations", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(params),
   });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "فشل في إنشاء محادثة الدعم");
-  }
-
-  const data = await res.json();
   return data.conversation;
 }
 
@@ -143,20 +116,13 @@ export async function sendSupportMessageApi(
   conversationId: string,
   body: string
 ): Promise<SupportMessageItem> {
-  const res = await fetch(`/api/support/conversations/${encodeURIComponent(conversationId)}/messages`, {
+  const data: any = await apiFetch(`/api/support/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ body }),
   });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "تعذر إرسال الرسالة إلى الدعم");
-  }
-
-  const data = await res.json();
   return data.messageData;
 }
 
@@ -179,18 +145,7 @@ export async function getAdminSupportConversationsApi(filters?: {
   if (filters?.search && filters.search.trim()) params.append("search", filters.search.trim());
 
   const queryString = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`/api/support/admin/conversations${queryString}`, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "تعذر جلب محادثات الدعم للمشرفين");
-  }
-
-  return await res.json();
+  return await apiFetch(`/api/support/admin/conversations${queryString}`);
 }
 
 /**
@@ -201,19 +156,12 @@ export async function updateSupportStatusApi(
   status: "open" | "in_progress" | "resolved" | "closed",
   priority?: "low" | "normal" | "high" | "urgent"
 ): Promise<SupportConversationItem> {
-  const res = await fetch(`/api/support/conversations/${encodeURIComponent(conversationId)}/status`, {
+  const data: any = await apiFetch(`/api/support/conversations/${encodeURIComponent(conversationId)}/status`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ status, priority }),
   });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.message || "تعذر تحديث حالة تذكرة الدعم");
-  }
-
-  const data = await res.json();
   return data.conversation;
 }
