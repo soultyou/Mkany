@@ -18,6 +18,7 @@ declare global {
  */
 export const requireAuth: RequestHandler = async (req, res, next) => {
   const auth = getAuth(req);
+  console.log("Clerk Auth Result:", auth);
   if (!auth || !auth.userId) {
     if (process.env.NODE_ENV !== "production" && req.headers["x-dev-admin"] === "true") {
       let adminUser = await db.query.users.findFirst({

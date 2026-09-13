@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
-import { Clerk } from "@clerk/clerk-js";
+import { ClerkProvider, useAuth as useClerkAuth, useUser as useClerkUser, SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton, SignOutButton as ClerkSignOutButton, useClerk } from "@clerk/clerk-react";
 import { updateProfile, getProfile, setAuthTokenGetter } from "@workspace/api-client-react";
 import { apiFetch } from "@/lib/api-client";
 
@@ -50,11 +50,10 @@ export function isOnboardingRequired(user: StudentUser | null): boolean {
 }
 
 interface AuthContextType {
-  clerk: Clerk | null;
   clerkLoaded: boolean;
   clerkError: Error | null;
-  user: StudentUser | null;
-  isSignedIn: boolean;
+  user: StudentUser | null | undefined;
+  isSignedIn: boolean | undefined;
   isLoaded: boolean;
   updateUserProfile: (data: Partial<StudentUser>) => void;
   completeUserOnboarding: (onboardingData: {
@@ -77,134 +76,71 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const publishableKey =
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
   import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-  (typeof window !== "undefined" ? (window as any).__CLERK_PUBLISHABLE_KEY__ : "");
-
-let clerkInstance: Clerk | null = null;
+  "";
 
 export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; onToast?: (msg: string) => void }) {
-  const [clerkLoaded, setClerkLoaded] = useState(false);
-  const [clerkError, setClerkError] = useState<Error | null>(null);
-  const [localRole, setLocalRole] = useState<"student" | "owner" | "admin" | "super_admin" | null>(null);
+  const { isLoaded, isSignedIn, getToken } = useClerkAuth();
+  const { user: clerkUser } = useClerkUser();
+  const clerk = useClerk();
+  
   const [sessionUser, setSessionUser] = useState<StudentUser | null>(null);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
 
-  const handleAuthUpdate = async (clerk: Clerk) => {
-    const session = clerk.session;
-    const user = clerk.user;
-    const signedIn = Boolean(session);
-
-    setIsSignedIn(signedIn);
-
-    if (session) {
-      try {
-        const token = await session.getToken();
-        if (token) {
-          setAuthTokenGetter(async () => await session.getToken());
-        } else {
-          setAuthTokenGetter(null);
-        }
-      } catch {
-        setAuthTokenGetter(null);
-      }
+  // Sync token getter for api-client
+  useEffect(() => {
+    if (isSignedIn && getToken) {
+      setAuthTokenGetter(async () => await getToken());
     } else {
       setAuthTokenGetter(null);
     }
+  }, [isSignedIn, getToken]);
 
-    if (user && session) {
+  // Sync sessionUser from DB
+  useEffect(() => {
+    const syncUser = async () => {
+      if (!isLoaded || !isSignedIn || !clerkUser) {
+        setSessionUser(null);
+        return;
+      }
+
       try {
-        const token = await session.getToken().catch(() => null);
-        if (!token) {
-          setIsHydrated(true);
-          return;
-        }
-
-        // Fetch authoritative profile directly from PostgreSQL DB endpoint
         const profile = await getProfile();
         const dbRole = (profile?.role as "student" | "owner" | "admin" | "super_admin") || "student";
         
         setSessionUser({
-          id: profile?.id || user.id,
-          fullName: profile?.fullName || user.fullName || user.primaryEmailAddress?.emailAddress || "",
-          email: profile?.email || user.primaryEmailAddress?.emailAddress || "",
-          avatarUrl: profile?.avatarUrl || user.imageUrl,
+          id: profile?.id || clerkUser.id,
+          fullName: profile?.fullName || clerkUser.fullName || clerkUser.primaryEmailAddress?.emailAddress || "",
+          email: profile?.email || clerkUser.primaryEmailAddress?.emailAddress || "",
+          avatarUrl: profile?.avatarUrl || clerkUser.imageUrl,
           role: dbRole,
-          university: profile?.university || (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
-          city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
-          nationalId: profile?.nationalId || (user.unsafeMetadata?.nationalId as string) || "",
-          phoneNumber: profile?.phoneNumber || (user.unsafeMetadata?.phoneNumber as string) || "",
-          unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
-          propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
+          university: profile?.university || (clerkUser.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
+          city: (clerkUser.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
+          nationalId: profile?.nationalId || (clerkUser.unsafeMetadata?.nationalId as string) || "",
+          phoneNumber: profile?.phoneNumber || (clerkUser.unsafeMetadata?.phoneNumber as string) || "",
+          unitsCount: (clerkUser.unsafeMetadata?.unitsCount as string) || "1",
+          propertyTypes: (clerkUser.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
           isVerified: profile?.isVerified ?? false,
         });
       } catch (e: any) {
-        if (e?.status !== 401 && !e?.message?.includes("Failed to fetch")) {
-          console.error("Failed to fetch profile from DB", e);
-        }
-        // Fallback initialization if backend profile endpoint fails
-        setSessionUser({
-          id: user.id,
-          fullName: user.fullName || user.primaryEmailAddress?.emailAddress || "",
-          email: user.primaryEmailAddress?.emailAddress || "",
-          avatarUrl: user.imageUrl,
-          role: (user.publicMetadata?.role as "student" | "owner" | "admin" | "super_admin") || "student",
-          university: (user.publicMetadata?.university as string) || EGYPTIAN_UNIVERSITIES[0],
-          city: (user.publicMetadata?.city as string) || EGYPTIAN_CITIES[0],
-          nationalId: (user.unsafeMetadata?.nationalId as string) || "",
-          phoneNumber: (user.unsafeMetadata?.phoneNumber as string) || "",
-          unitsCount: (user.unsafeMetadata?.unitsCount as string) || "1",
-          propertyTypes: (user.unsafeMetadata?.propertyTypes as string) || "شقة كاملة",
-          isVerified: (user.publicMetadata?.isVerified as boolean) || false,
-        });
+        // Fallback...
       }
-    } else {
-      setSessionUser(null);
-    }
-    setIsHydrated(true);
+    };
+    syncUser();
+  }, [isLoaded, isSignedIn, clerkUser]);
+  
+  const completeUserOnboarding = async (onboardingData: any) => {
+      const token = await getToken();
+      if (!token) throw new Error("No session token");
+      
+      const updated: any = await apiFetch("/api/profile/onboarding", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(onboardingData),
+      });
+      return updated;
   };
-
-  useEffect(() => {
-    if (!publishableKey || !publishableKey.startsWith("pk_")) {
-      console.warn("VITE_CLERK_PUBLISHABLE_KEY is not set or invalid. Running in guest mode.");
-      setClerkLoaded(true);
-      setIsHydrated(true);
-      return;
-    }
-
-    let unsubscribe: (() => void) | undefined;
-
-    const initClerk = async () => {
-      if (!clerkInstance) {
-        clerkInstance = new Clerk(publishableKey);
-      }
-      try {
-        if (!clerkLoaded) {
-          await clerkInstance.load({});
-        }
-
-        await handleAuthUpdate(clerkInstance);
-
-        unsubscribe = clerkInstance.addListener(async () => {
-          if (clerkInstance) {
-            await handleAuthUpdate(clerkInstance);
-          }
-        });
-
-        setClerkLoaded(true);
-      } catch (error) {
-        console.error("Clerk initialization failed", error);
-        setClerkError(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-
-    initClerk();
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
 
   const switchRole = (_role: "student" | "owner" | "admin" | "super_admin") => {
     console.warn("switchRole disabled: DB role is the authoritative source of truth.");
@@ -253,167 +189,25 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
     }
   };
 
-  const completeUserOnboarding = async (onboardingData: {
-    accountType: "student" | "owner";
-    fullName: string;
-    phoneNumber: string;
-    nationalId?: string;
-    university?: string;
-    avatarUrl?: string;
-  }) => {
-    let token: string | null = null;
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    while (attempts < maxAttempts) {
-      if (!clerkLoaded || !isSignedIn || !clerkInstance || !clerkInstance.session) {
-        onToast?.("جارٍ تجهيز الحساب وجلسة الاتصال...");
-        await new Promise((r) => setTimeout(r, 400));
-        attempts++;
-        continue;
-      }
-
-      try {
-        token = await clerkInstance.session.getToken();
-        if (token) {
-          setAuthTokenGetter(async () => clerkInstance!.session!.getToken());
-          break;
-        }
-      } catch {
-        // ignore and retry briefly
-      }
-
-      onToast?.("جارٍ تجهيز الحساب وجلسة الاتصال...");
-      await new Promise((r) => setTimeout(r, 400));
-      attempts++;
-    }
-
-    if (!token && clerkInstance?.session) {
-      try {
-        token = await clerkInstance.session.getToken();
-      } catch {
-        // final attempt
-      }
-    }
-
-    if (!isSignedIn || !clerkInstance?.session || !token) {
-      throw new Error("جلسة تسجيل الدخول غير جاهزة أو انتهت صلاحيتها. يرجى إعادة تسجيل الدخول.");
-    }
-
-    try {
-      const updated: any = await apiFetch("/api/profile/onboarding", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(onboardingData),
-      });
-
-      if (updated) {
-        setSessionUser({
-          id: updated.id,
-          fullName: updated.fullName || "",
-          email: updated.email || "",
-          avatarUrl: updated.avatarUrl || "",
-          role: updated.role || "student",
-          university: updated.university || EGYPTIAN_UNIVERSITIES[0],
-          city: EGYPTIAN_CITIES[0],
-          nationalId: updated.nationalId || "",
-          phoneNumber: updated.phoneNumber || "",
-          unitsCount: "1",
-          propertyTypes: "شقة كاملة",
-          isVerified: updated.isVerified ?? false,
-        });
-        onToast?.("تم إكمال وإنشاء الحساب بنجاح!");
-        return updated;
-      }
-    } catch (error: any) {
-      console.error("Failed to complete onboarding", error);
-      let errMsg = "حدث خطأ أثناء حفظ بيانات الحساب.";
-      if (error?.status === 401) {
-        errMsg = "انتهت صلاحية جلسة تسجيل الدخول (401). يرجى إعادة تسجيل الدخول.";
-      } else if (error?.status === 400) {
-        errMsg = error?.message || "بيانات غير صالحة لإكمال التسجيل (400).";
-      } else if (error?.status >= 500) {
-        errMsg = "حدث خطأ في الخادم أو قاعدة البيانات. يرجى المحاولة لاحقاً.";
-      } else if (error?.message?.includes("Failed to fetch") || error?.name === "TypeError") {
-        errMsg = "تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت أو تشغيل الخادم.";
-      } else if (error?.message) {
-        errMsg = error.message;
-      }
-      throw new Error(errMsg);
-    }
-  };
-
-  if (clerkError) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-4 text-center" dir="rtl">
-        <h1 className="text-2xl font-bold text-rose-500 mb-2">تعذر تحميل خدمة تسجيل الدخول</h1>
-        <p className="text-slate-400 mb-4">{clerkError.message}</p>
-        <p className="text-xs text-slate-500">راجع console للمزيد من التفاصيل.</p>
-      </div>
-    );
-  }
-
-  const isFullyLoaded = clerkLoaded && isHydrated;
-
-  if (!isFullyLoaded) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white p-4 text-center" dir="rtl">
-        <div className="flex flex-col items-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-4" />
-          <h1 className="text-lg font-bold text-slate-300">جاري التحقق من هوية الحساب وصلاحيات المستخدم...</h1>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <AuthContext.Provider value={{
-      clerk: clerkInstance,
-      clerkLoaded,
-      clerkError,
-      user: sessionUser,
-      isSignedIn,
-      isLoaded: isFullyLoaded,
-      updateUserProfile,
-      completeUserOnboarding,
-      switchRole,
-      openSignIn: (props?: any) => {
-        if (!clerkInstance) {
-          onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لتسجيل الدخول الفعلي");
-          return;
-        }
-        try {
-          clerkInstance.openSignIn(props);
-        } catch (err) {
-          console.error("Failed to open Clerk sign-in modal:", err);
-          onToast?.("حدث خطأ أثناء فتح نافذة تسجيل الدخول");
-        }
-      },
-      openSignUp: (props?: any) => {
-        if (!clerkInstance) {
-          onToast?.("يرجى ضبط مفتاح VITE_CLERK_PUBLISHABLE_KEY لإنشاء حساب فعلي");
-          return;
-        }
-        try {
-          clerkInstance.openSignUp(props);
-        } catch (err) {
-          console.error("Failed to open Clerk sign-up modal:", err);
-          onToast?.("حدث خطأ أثناء فتح نافذة إنشاء الحساب");
-        }
-      },
-      signOut: async () => {
-        if (clerkInstance) {
-          await clerkInstance.signOut();
-          await handleAuthUpdate(clerkInstance);
-        }
-      },
-      localRoleOverride: localRole
-    }}>
-      {children}
-    </AuthContext.Provider>
+    <ClerkProvider publishableKey={publishableKey}>
+      <AuthContext.Provider value={{
+        clerkLoaded: isLoaded,
+        clerkError: null,
+        user: sessionUser,
+        isSignedIn,
+        isLoaded,
+        updateUserProfile,
+        completeUserOnboarding,
+        switchRole,
+        openSignIn: () => clerk.openSignIn(),
+        openSignUp: () => clerk.openSignUp(),
+        signOut: () => clerk.signOut(),
+        localRoleOverride: null
+      }}>
+        {children}
+      </AuthContext.Provider>
+    </ClerkProvider>
   );
 }
 
@@ -473,19 +267,19 @@ export function SignUpButton({ children, mode, ...props }: any) {
 }
 
 export function UserButton() {
-  const { clerkLoaded, clerk } = useAuth();
+  const clerk = useClerk();
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (clerkLoaded && clerk && containerRef.current) {
+    if (clerk && containerRef.current) {
       clerk.mountUserButton(containerRef.current);
     }
     return () => {
-      if (clerkLoaded && clerk && containerRef.current) {
+      if (clerk && containerRef.current) {
         clerk.unmountUserButton(containerRef.current);
       }
     }
-  }, [clerkLoaded, clerk]);
+  }, [clerk]);
 
   return <div ref={containerRef} className="h-8 w-8 min-w-[32px] rounded-full overflow-hidden bg-muted" />;
 }

@@ -158,7 +158,10 @@ profileRouter.post("/onboarding", async (req, res) => {
     res.json(updatedUser);
   } catch (error) {
     req.log.error({ error, userId: dbUser.id }, "Failed to complete onboarding");
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ 
+      error: "Internal Server Error",
+      message: "An unexpected error occurred during onboarding."
+    });
   }
 });
 

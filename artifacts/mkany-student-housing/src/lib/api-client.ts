@@ -2,7 +2,7 @@ import { customFetch, ApiError, setBaseUrl, type CustomFetchOptions } from "@wor
 
 const rawApiUrl = import.meta.env.VITE_API_URL;
 // Force same-origin behavior by ignoring any configured API URL in production
-const VITE_API_URL = ""; 
+const VITE_API_URL: string = ""; 
 if (VITE_API_URL) {
   setBaseUrl(VITE_API_URL);
 }

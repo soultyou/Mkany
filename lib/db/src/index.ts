@@ -41,8 +41,13 @@ if (process.env.DATABASE_URL) {
     pool = new Pool(config);
     db = drizzle(pool, { schema });
   } catch (err) {
-    console.warn('[AI Studio] Database connection error:', err);
+    console.error('[Database] Connection initialization error:', err);
+    if (process.env.NODE_ENV === "production") {
+      throw new Error('Database initialization failed');
+    }
   }
+} else if (process.env.NODE_ENV === "production") {
+  throw new Error('DATABASE_URL environment variable is required in production');
 }
 
 if (!db) {

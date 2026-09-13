@@ -75,13 +75,9 @@ app.use(
       }
 
       const allowedOrigins = getAllowedOrigins();
+      logger.info({ origin }, "Checking CORS origin");
 
       if (allowedOrigins.has(origin)) {
-        return callback(null, true);
-      }
-
-      // Allow any AI Studio or Cloud Run preview/published domain
-      if (origin.endsWith(".ai.studio") || origin.endsWith(".run.app") || origin.includes("ai.studio")) {
         return callback(null, true);
       }
 
@@ -138,7 +134,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use("/api", router);
 
 // Serve static frontend build and SPA fallback for non-API routes
-const distPath = path.resolve(__dirname, "../../dist");
+const distPath = path.resolve("/dist");
 app.use(express.static(distPath));
 
 app.use((req, res, next) => {
