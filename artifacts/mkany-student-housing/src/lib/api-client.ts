@@ -1,7 +1,8 @@
 import { customFetch, ApiError, setBaseUrl, type CustomFetchOptions } from "@workspace/api-client-react";
 
 const rawApiUrl = import.meta.env.VITE_API_URL;
-const VITE_API_URL = rawApiUrl && !rawApiUrl.includes("localhost") && !rawApiUrl.includes("127.0.0.1") ? rawApiUrl : "";
+// Force same-origin behavior by ignoring any configured API URL in production
+const VITE_API_URL = ""; 
 if (VITE_API_URL) {
   setBaseUrl(VITE_API_URL);
 }
