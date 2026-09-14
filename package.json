@@ -8,6 +8,9 @@
     "lib/*",
     "scripts"
   ],
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "npm run dev:api & npm run dev:frontend",
     "dev:api": "API_PORT=3001 npm --workspace=@workspace/api-server run dev",
