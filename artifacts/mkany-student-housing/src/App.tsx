@@ -808,52 +808,6 @@ function PropertyDetail({
   return (
     <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}>
       <div className="relative p-4 pt-14 sm:p-8 sm:pt-14 space-y-8 pb-24 sm:pb-12">
-
-        {/* 1. Information-First Summary Header */}
-        <div className="space-y-4 bg-card/60 p-6 rounded-3xl border border-border shadow-xs">
-          <div>
-            <h2 className="text-2xl font-extrabold sm:text-4xl text-foreground">{property.title}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{property.address}</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground font-semibold">
-            <span className="flex items-center gap-1.5 text-primary">
-              <MapPin size={16} />
-              {property.city} · {property.university}
-            </span>
-            {reviews.length > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-600">
-                ★ {reviews.length} تقييمات الطلاب
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            {property.verified && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-600">
-                <ShieldCheck size={14} />
-                موثّق ومعتمد
-              </span>
-            )}
-            <span className={`inline-flex items-center rounded-full px-3.5 py-1 text-xs font-bold ${
-              availablePlaces > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border border-red-500/20 text-red-500"
-            }`}>
-              {availablePlaces > 0 ? `متاح — ${availablePlaces} أماكن شاغرة` : "مكتمل الحجز بالكامل"}
-            </span>
-          </div>
-
-          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between mt-2">
-            <div>
-              <span className="text-xs text-muted-foreground block font-medium">السعر للفرد / للسرير</span>
-              <strong className="text-2xl font-black text-primary">
-                {formatPrice(property.pricePerMonth)} جنيه
-              </strong>
-            </div>
-            <span className="text-xs font-bold text-primary/80 bg-primary/10 px-3 py-1.5 rounded-xl">
-              الشهر
-            </span>
-          </div>
-        </div>
         
         {/* Full-Screen Lightbox Media Viewer */}
         {isFullScreenMedia && (
@@ -919,7 +873,63 @@ function PropertyDetail({
           </div>
         )}
 
-        {/* 2. Immersive Property Media Gallery */}
+        {/* 1. Top Metadata / Compact Badges */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-bold text-primary">
+            <MapPin size={13} />
+            {property.city} · {property.university}
+          </span>
+          {property.verified && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-600">
+              <ShieldCheck size={13} />
+              موثّق ومعتمد
+            </span>
+          )}
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${
+            availablePlaces > 0 ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" : "bg-red-500/10 text-red-500 border border-red-500/20"
+          }`}>
+            {availablePlaces > 0 ? "متاح" : "مكتمل الحجز"}
+          </span>
+          {reviews.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-600">
+              ★ {reviews.length} تقييمات الطلاب
+            </span>
+          )}
+        </div>
+
+        {/* 2. Property Title & Address */}
+        <div>
+          <h2 className="text-2xl font-extrabold sm:text-3xl text-foreground">{property.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{property.address}</p>
+        </div>
+
+        {/* 3. Favorite Action */}
+        {onSave && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onSave}
+              className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-bold transition-all shadow-2xs ${
+                saved ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:border-primary/50 text-foreground"
+              }`}
+              data-testid={`button-detail-save-${property.id}`}
+            >
+              <Heart size={15} fill={saved ? "currentColor" : "none"} />
+              {saved ? "محفوظ في المفضلة" : "حفظ بالمفضلة"}
+            </button>
+          </div>
+        )}
+
+        {/* 4. Price Presentation */}
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 flex flex-col gap-1">
+          <div className="flex items-baseline gap-2">
+            <strong className="text-2xl sm:text-3xl font-black text-primary">
+              {formatPrice(property.pricePerMonth)} جنيه / شهر
+            </strong>
+          </div>
+          <span className="text-xs text-muted-foreground font-medium">شامل الرسوم الأساسية للإيجار والمرافق الأساسية</span>
+        </div>
+
+        {/* 5. Main Property Image / Gallery */}
         <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
           <div 
             className="relative h-72 sm:h-[420px] w-full bg-slate-950 group"
@@ -974,22 +984,9 @@ function PropertyDetail({
               <div className="flex items-center gap-2">
                 {hasImages && media === "photos" && (
                   <span className="rounded-full bg-black/70 backdrop-blur-md px-3 py-1 text-xs font-bold text-white border border-white/20 shadow">
-                    📷 {safePhotoIndex + 1} / {propertyImages.length}
+                    صور الوحدة {safePhotoIndex + 1} / {propertyImages.length}
                   </span>
                 )}
-                <button
-                  onClick={() => {
-                    if (navigator.share) {
-                      navigator.share({ title: property.title, url: window.location.href }).catch(() => {});
-                    } else {
-                      navigator.clipboard?.writeText(window.location.href);
-                    }
-                  }}
-                  className="flex items-center gap-1 rounded-full bg-black/75 backdrop-blur-md px-3 py-1.5 text-xs font-bold text-white border border-white/20 hover:bg-primary transition-colors shadow"
-                  data-testid="button-share-property"
-                >
-                  <Share2 size={13} /> مشاركة
-                </button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1001,19 +998,7 @@ function PropertyDetail({
                     }`}
                     data-testid="button-toggle-360-media"
                   >
-                    <Sparkle size={13} /> 360° تور
-                  </button>
-                )}
-                {onSave && (
-                  <button
-                    onClick={onSave}
-                    className={`rounded-full p-2.5 backdrop-blur-md border transition-all shadow ${
-                      saved ? "bg-primary text-primary-foreground border-primary" : "bg-black/75 text-white border-white/20 hover:bg-primary"
-                    }`}
-                    aria-label={saved ? "إزالة من المفضلة" : "حفظ"}
-                    data-testid={`button-detail-save-${property.id}`}
-                  >
-                    <Heart size={16} fill={saved ? "currentColor" : "none"} />
+                    <Sparkle size={13} /> فيديو المعاينة 360°
                   </button>
                 )}
                 <button
@@ -1046,51 +1031,88 @@ function PropertyDetail({
             </div>
           )}
         </div>
-        
-        {/* Compact 360° & 3D Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {property.video360Url && (
+
+        {/* 6. 360 / Inspection Media Card */}
+        {property.video360Url && (
+          <div className="rounded-2xl border border-primary/30 bg-card p-4 flex items-center justify-between shadow-2xs">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Sparkles size={20} />
+              </span>
+              <div>
+                <strong className="block text-sm font-bold">جولة افتراضية 360°</strong>
+                <span className="text-xs text-muted-foreground">معاينة تفصيلية لجميع زوايا الغرفة والسكن</span>
+              </div>
+            </div>
             <button
               onClick={() => setMedia("video")}
-              className="flex items-center gap-3 p-4 rounded-2xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-right"
+              className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
             >
-              <Sparkles className="text-primary" size={24} />
-              <div>
-                <h3 className="font-bold text-sm">جولة 360°</h3>
-                <p className="text-xs text-muted-foreground">استكشف العقار بزاوية 360°</p>
-              </div>
+              تشغيل المعاينة
             </button>
-          )}
-          <button
-            onClick={() => window.alert("جاري تحميل نموذج 3D الهندسي للوحدة...")}
-            className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-card hover:bg-accent/10 transition-colors text-right"
-          >
-            <Box className="text-accent" size={24} />
-            <div>
-              <h3 className="font-bold text-sm">نموذج 3D</h3>
-              <p className="text-xs text-muted-foreground">استكشف نموذج العقار 3D</p>
-            </div>
-          </button>
-        </div>
+          </div>
+        )}
 
-        {/* 3. Key Facts / Specifications */}
-        <section data-testid="section-key-facts">
-          <h3 className="mb-4 text-lg font-bold">أهم مواصفات السكن</h3>
+        {/* 7. Availability Card ("حالة التوفر والسعة السكنية الشاغرة") */}
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-2xs space-y-4" data-testid="section-availability-card">
+          <div className="border-b border-border pb-3">
+            <h3 className="text-base font-bold text-foreground">حالة التوفر والسعة السكنية الشاغرة</h3>
+            <span className="text-xs text-muted-foreground">تحديث مباشر لحالة الأماكن الشاغرة في الوحدة</span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
+              <span className="text-xs text-muted-foreground font-medium">حالة الحجز</span>
+              <span className={`font-bold text-xs px-2.5 py-1 rounded-full ${
+                availablePlaces > 0 ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500"
+              }`}>
+                {availablePlaces > 0 ? "متاح للحجز الفوري" : "مكتمل"}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
+              <span className="text-xs text-muted-foreground font-medium">الأماكن المتاحة</span>
+              <strong className="text-xs font-bold text-foreground">{availablePlaces} أسرة</strong>
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
+              <span className="text-xs text-muted-foreground font-medium">المقاعد المشغولة</span>
+              <strong className="text-xs font-bold text-foreground">{Math.max(0, ((property as any).capacity || 1) - availablePlaces)} من {(property as any).capacity || 1} أسرة</strong>
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
+              <span className="text-xs text-muted-foreground font-medium">متاح من تاريخ</span>
+              <strong className="text-xs font-bold text-emerald-600">متاح الآن فوراً</strong>
+            </div>
+
+            <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3 sm:col-span-2">
+              <span className="text-xs text-muted-foreground font-medium">حالة الوحدة</span>
+              <strong className="text-xs font-bold text-foreground">جاهزة للاستلام والمعاينة</strong>
+            </div>
+          </div>
+        </section>
+
+        {/* 8. Specifications ("مواصفات وتفاصيل السكن") */}
+        <section data-testid="section-key-facts" className="space-y-4">
+          <div>
+            <h3 className="text-base font-bold text-foreground">مواصفات وتفاصيل السكن</h3>
+            <span className="text-xs text-muted-foreground">أهم مواصفات السكن والخدمات المقدمة</span>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {facts.map(([Icon, label, value]) => (
-              <div className="rounded-2xl border border-border bg-card p-4 shadow-2xs hover:border-primary/40 transition-colors" key={label}>
-                <Icon size={20} className="mb-2 text-primary" />
-                <span className="block text-xs text-muted-foreground">{label}</span>
-                <strong className="text-sm sm:text-base font-extrabold text-foreground">{value}</strong>
+              <div className="rounded-xl border border-border bg-card p-3.5 shadow-2xs hover:border-primary/40 transition-colors" key={label}>
+                <Icon size={18} className="mb-2 text-primary" />
+                <span className="block text-[11px] text-muted-foreground">{label}</span>
+                <strong className="text-xs sm:text-sm font-extrabold text-foreground">{value}</strong>
               </div>
             ))}
           </div>
         </section>
 
-        {/* 4. Description UX with Progressive Disclosure */}
-        <section className="rounded-3xl border border-border bg-card p-6 shadow-sm" data-testid="section-description">
-          <h3 className="mb-3 text-lg font-bold">وصف العقار التفصيلي</h3>
-          <div className="text-sm leading-8 text-muted-foreground">
+        {/* 9. Description UX */}
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-2xs" data-testid="section-description">
+          <h3 className="mb-2 text-base font-bold text-foreground">وصف العقار التفصيلي</h3>
+          <div className="text-sm leading-7 text-muted-foreground">
             {isDescriptionExpanded ? (
               <p>{property.rules || property.title + " - وحدة سكنية طلابية مجهزة بالكامل لتوفير بيئة مريحة وآمنة للطلاب بالقرب من الجامعات والمعاهد المصرية، مع توفير كافة المرافق والخدمات الأساسية."}</p>
             ) : (
@@ -1099,7 +1121,7 @@ function PropertyDetail({
           </div>
           <button
             onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
-            className="mt-3 text-xs font-bold text-primary hover:underline"
+            className="mt-2 text-xs font-bold text-primary hover:underline"
             data-testid="button-toggle-description"
           >
             {isDescriptionExpanded ? "عرض أقل ▲" : "عرض المزيد ▼"}
