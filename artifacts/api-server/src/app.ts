@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import router from "./routes";
@@ -94,6 +95,13 @@ app.use(
   }),
 );
 
+// Serve static frontend build files
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, "../../..", "dist");
+
+app.use(express.static(distPath));
+
 // Webhooks MUST be mounted before express.json() to preserve raw body
 app.use("/api/webhooks", clerkWebhooksRouter);
 
@@ -133,15 +141,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use("/api", router);
 
-// Serve static frontend build and SPA fallback for non-API routes
-const distPath = path.resolve(process.cwd(), "dist");
-app.use(express.static(distPath));
-
-app.use((req, res, next) => {
-  if (req.path.startsWith("/api")) {
+// SPA fallback for non-API, non-asset routes
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/assets")) {
     return next();
   }
   res.sendFile(path.join(distPath, "index.html"));
+});
+
+// 404 handler for missing assets or unhandled non-API routes
+app.use((req: Request, res: Response) => {
+  if (req.path.startsWith("/assets")) {
+    res.status(404).send("Not Found");
+    return;
+  }
+  res.status(404).sendFile(path.join(distPath, "index.html"));
 });
 
 export default app;
