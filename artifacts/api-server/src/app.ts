@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
@@ -99,6 +100,16 @@ app.use(
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, "../../..", "dist");
+console.log("RUNTIME distPath:", distPath);
+console.log("distPath exists:", fs.existsSync(distPath));
+
+app.use((req, res, next) => {
+  if (req.url.startsWith("/assets/")) {
+    const filePath = path.join(distPath, req.url);
+    console.log("STATIC DEBUG:", req.url, "->", filePath, "Exists:", fs.existsSync(filePath));
+  }
+  next();
+});
 
 app.use(express.static(distPath));
 
