@@ -526,7 +526,9 @@ export function InteractiveLeafletMap({
                 <div>
                   <span className="block text-[10px] text-muted-foreground">مسار المشي</span>
                   <strong className="text-xs text-foreground">
-                    بيانات مسار المشي غير متاحة
+                    {routeInfo && routeInfo.walkTimeFormatted && routeInfo.isRealStreetRoute
+                      ? routeInfo.walkTimeFormatted
+                      : "بيانات مسار المشي غير متاحة"}
                   </strong>
                 </div>
               </div>
@@ -536,9 +538,11 @@ export function InteractiveLeafletMap({
                 <div>
                   <span className="block text-[10px] text-muted-foreground">المسافة</span>
                   <strong className="text-xs text-foreground truncate block">
-                    {activeItem.distance?.startsWith("المسافة الجغرافية:")
-                      ? activeItem.distance
-                      : `المسافة الجغرافية: ${activeItem.distance}`}
+                    {routeInfo && routeInfo.distanceFormatted && routeInfo.isRealStreetRoute
+                      ? `مسافة الشارع: ${routeInfo.distanceFormatted}`
+                      : (activeItem.distance?.startsWith("المسافة الجغرافية:")
+                          ? activeItem.distance
+                          : `المسافة الجغرافية: ${activeItem.distance}`)}
                   </strong>
                 </div>
               </div>

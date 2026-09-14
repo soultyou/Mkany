@@ -59,16 +59,24 @@ interface OwnerDashboardProps {
   openToast: (msg: string) => void;
   onViewPublicServices: () => void;
   onViewPropertyModal?: (p: PlatformProperty) => void;
+  initialTab?: "units" | "inspections" | "bookings" | "support";
 }
 
 export function OwnerDashboard({
   openToast,
   onViewPublicServices,
   onViewPropertyModal,
+  initialTab = "units",
 }: OwnerDashboardProps) {
   const { isSignedIn, user, openSignIn } = useAuth();
   
-  const [activeTab, setActiveTab] = useState<"units" | "inspections" | "bookings" | "support">("units");
+  const [activeTab, setActiveTab] = useState<"units" | "inspections" | "bookings" | "support">(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   const [isAddApartmentModalOpen, setIsAddApartmentModalOpen] = useState(false);
   const [isAddInspectionModalOpen, setIsAddInspectionModalOpen] = useState(false);
   const [editingApartment, setEditingApartment] = useState<PlatformProperty | null>(null);

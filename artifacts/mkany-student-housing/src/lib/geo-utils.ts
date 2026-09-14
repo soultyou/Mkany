@@ -219,3 +219,183 @@ export function getOpenStreetMapDirectionsUrl(
 ): string {
   return `https://www.openstreetmap.org/directions?engine=fossgis_osrm_foot&route=${fromLat}%2C${fromLng}%3B${toLat}%2C${toLng}`;
 }
+
+export interface NearbyPlace {
+  id: string;
+  name: string;
+  category: "university" | "hospital" | "pharmacy" | "transportation" | "supermarket" | "cafe";
+  categoryLabel: string;
+  lat: number;
+  lng: number;
+  distanceMeters: number;
+  distanceFormatted: string;
+  address?: string;
+}
+
+export async function searchNearbyRealPlaces(
+  lat: number,
+  lng: number,
+  city: string = "كفر الشيخ",
+  signal?: AbortSignal
+): Promise<{
+  universities: NearbyPlace[];
+  hospitals: NearbyPlace[];
+  pharmacies: NearbyPlace[];
+  transportation: NearbyPlace[];
+  supermarkets: NearbyPlace[];
+  cafes: NearbyPlace[];
+  all: NearbyPlace[];
+}> {
+  const cleanCity = city.trim() || "كفر الشيخ";
+  const primaryQueries = [
+    { q: `جامعة ${cleanCity}`, category: "university" as const, label: "جامعة" },
+    { q: `جامعة خاصة ${cleanCity}`, category: "university" as const, label: "جامعة خاصة" },
+    { q: `جامعة أهلية ${cleanCity}`, category: "university" as const, label: "جامعة أهلية" },
+    { q: `معهد عالي ${cleanCity}`, category: "university" as const, label: "معهد عالي" },
+    { q: `أكاديمية ${cleanCity}`, category: "university" as const, label: "أكاديمية" },
+    { q: `معهد ${cleanCity}`, category: "university" as const, label: "معهد" },
+    { q: `مستشفى ${cleanCity}`, category: "hospital" as const, label: "مستشفى" },
+    { q: `صيدلية ${cleanCity}`, category: "pharmacy" as const, label: "صيدلية" },
+    { q: `محطة مواصلات ${cleanCity}`, category: "transportation" as const, label: "محطة مواصلات" },
+    { q: `سوبر ماركت ${cleanCity}`, category: "supermarket" as const, label: "سوبر ماركت" },
+    { q: `مطعم كافيه ${cleanCity}`, category: "cafe" as const, label: "مطعم / كافيه" },
+  ];
+
+  const fallbackQueries = [
+    { q: "جامعة", category: "university" as const, label: "جامعة" },
+    { q: "معهد", category: "university" as const, label: "معهد" },
+    { q: "أكاديمية", category: "university" as const, label: "أكاديمية" },
+    { q: "مستشفى", category: "hospital" as const, label: "مستشفى" },
+    { q: "صيدلية", category: "pharmacy" as const, label: "صيدلية" },
+    { q: "موقف سيارات محطة", category: "transportation" as const, label: "محطة مواصلات" },
+    { q: "سوبر ماركت", category: "supermarket" as const, label: "سوبر ماركت" },
+    { q: "مطعم", category: "cafe" as const, label: "مطعم / كافيه" },
+  ];
+
+  const allPlaces: NearbyPlace[] = [];
+
+  const executeQueries = async (queryList: typeof primaryQueries) => {
+    if (signal?.aborted) return;
+    await Promise.all(
+      queryList.map(async (item) => {
+        if (signal?.aborted) return;
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            item.q
+          )}&countrycodes=eg&limit=8&accept-language=ar`;
+          const res = await fetch(url, { signal });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              data.forEach((place: any, index: number) => {
+                const pLat = parseFloat(place.lat);
+                const pLng = parseFloat(place.lon);
+                if (!isNaN(pLat) && !isNaN(pLng)) {
+                  const dist = calcHaversineDistanceMeters(lat, lng, pLat, pLng);
+                  const addressStr = place.display_name || "";
+
+                  allPlaces.push({
+                    id: `${item.category}-${place.place_id || index}-${pLat}-${pLng}`,
+                    name: addressStr ? addressStr.split(",")[0] : `${item.label} (${index + 1})`,
+                    category: item.category,
+                    categoryLabel: item.label,
+                    lat: pLat,
+                    lng: pLng,
+                    distanceMeters: dist,
+                    distanceFormatted: formatDistanceArabic(dist),
+                    address: addressStr,
+                  });
+                }
+              });
+            }
+          }
+        } catch (err: any) {
+          if (err?.name === "AbortError") throw err;
+        }
+      })
+    );
+  };
+
+  try {
+    await executeQueries(primaryQueries);
+    if (!signal?.aborted && !allPlaces.some(p => p.category === "university")) {
+      await executeQueries(fallbackQueries);
+    }
+  } catch (err: any) {
+    if (err?.name === "AbortError") throw err;
+  }
+
+  // Remove duplicates by coordinates proximity
+  const uniquePlaces: NearbyPlace[] = [];
+  allPlaces.forEach((p) => {
+    const exists = uniquePlaces.some(
+      (up) => up.category === p.category && Math.abs(up.lat - p.lat) < 0.0005 && Math.abs(up.lng - p.lng) < 0.0005
+    );
+    if (!exists) {
+      uniquePlaces.push(p);
+    }
+  });
+
+  // Filter universities & institutes: sort ascending by distance. Cross-city filter.
+  const universities = uniquePlaces
+    .filter((p) => {
+      if (p.category !== "university") return false;
+      const addr = (p.address || "").toLowerCase();
+      const nameLower = (p.name || "").toLowerCase();
+      
+      if (cleanCity.includes("طنطا")) {
+        if ((addr.includes("القاهرة") || addr.includes("الإسكندرية") || addr.includes("المنصورة") || addr.includes("كفر الشيخ")) && !addr.includes("طنطا") && !nameLower.includes("طنطا")) {
+          return false;
+        }
+      }
+      if (cleanCity.includes("كفر الشيخ")) {
+        if ((addr.includes("القاهرة") || addr.includes("طنطا") || addr.includes("المنصورة")) && !addr.includes("كفر الشيخ") && !nameLower.includes("كفر الشيخ")) {
+          return false;
+        }
+      }
+      if (cleanCity.includes("المنصورة")) {
+        if ((addr.includes("القاهرة") || addr.includes("طنطا") || addr.includes("كفر الشيخ")) && !addr.includes("المنصورة") && !nameLower.includes("المنصورة")) {
+          return false;
+        }
+      }
+      if (cleanCity.includes("الزقازيق")) {
+        if ((addr.includes("القاهرة") || addr.includes("طنطا")) && !addr.includes("الزقازيق") && !nameLower.includes("الزقازيق")) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+  // Normal services rule: STRICTLY <= 1000 meters (1 km)
+  const filterNormalService = (cat: string) => {
+    return uniquePlaces
+      .filter((p) => p.category === cat && p.distanceMeters <= 1000)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  };
+
+  const hospitals = filterNormalService("hospital");
+  const pharmacies = filterNormalService("pharmacy");
+  const transportation = filterNormalService("transportation");
+  const supermarkets = filterNormalService("supermarket");
+  const cafes = filterNormalService("cafe");
+
+  const validAll = [
+    ...universities,
+    ...hospitals,
+    ...pharmacies,
+    ...transportation,
+    ...supermarkets,
+    ...cafes,
+  ];
+
+  return {
+    universities,
+    hospitals,
+    pharmacies,
+    transportation,
+    supermarkets,
+    cafes,
+    all: validAll,
+  };
+}

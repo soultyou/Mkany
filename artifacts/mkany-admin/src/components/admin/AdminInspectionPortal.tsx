@@ -37,7 +37,8 @@ import {
   Activity,
   CheckSquare,
   FileText,
-  Headphones
+  Headphones,
+  Star
 } from "lucide-react";
 import { 
   getAdminSupportConversationsApi, 
@@ -90,6 +91,7 @@ import {
   updateAdminAdminApi,
   deleteAdminAdminApi
 } from "@/lib/api-client";
+import { ServiceRatingsManagement } from "./ServiceRatingsManagement";
 import { NearbyAmenitiesForm } from "./NearbyAmenitiesForm";
 import { 
   getAdminBookingsApi, 
@@ -119,7 +121,7 @@ export function AdminInspectionPortal({
 }: AdminInspectionPortalProps) {
   const { user } = useAuth();
   const [mainTab, setMainTab] = useState<
-    "overview" | "approvals" | "properties" | "verification" | "users" | "bookings" | "inspections" | "support" | "admin_management"
+    "overview" | "approvals" | "properties" | "verification" | "users" | "bookings" | "inspections" | "support" | "admin_management" | "service_ratings"
   >("overview");
 
   // Admin Management specific states
@@ -700,6 +702,21 @@ export function AdminInspectionPortal({
             )}
           </button>
 
+           {user?.role === "super_admin" && (
+            <button
+              onClick={() => setMainTab("service_ratings")}
+              className={`flex items-center gap-1.5 border-b-2 px-4 py-3.5 whitespace-nowrap transition-colors ${
+                mainTab === "service_ratings"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid="tab-admin-service-ratings"
+            >
+              <Star size={16} />
+              إدارة تقييمات الخدمات
+            </button>
+          )}
+
           {user?.role === "super_admin" && (
             <button
               onClick={() => setMainTab("admin_management")}
@@ -720,6 +737,12 @@ export function AdminInspectionPortal({
       {/* مساحة العمل */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 text-right">
 
+        {mainTab === "service_ratings" && (
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <ServiceRatingsManagement openToast={openToast} />
+          </div>
+        )}
+        
         {/* التبويب 0: نظرة عامة ومؤشرات المنصة */}
         {mainTab === "overview" && (
           <div className="space-y-6" data-testid="section-admin-overview">

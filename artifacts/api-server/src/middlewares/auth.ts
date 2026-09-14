@@ -94,8 +94,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
           .returning();
         dbUser = updated;
       } else {
-        // Provision new user record with default 'student' role (never admin from client)
+        // Provision new user record respecting Clerk unsafeMetadata role intent (default 'student')
         const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const clerkRole = (clerkUser?.unsafeMetadata?.role as string) || (clerkUser?.publicMetadata?.role as string) || "student";
+        const initialRole = clerkRole === "owner" ? "owner" : "student";
         const rawNationalId =
           (clerkUser?.unsafeMetadata?.nationalId as string) ||
           (clerkUser?.publicMetadata?.nationalId as string) ||
@@ -109,6 +111,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
           (clerkUser?.unsafeMetadata?.university as string) ||
           (clerkUser?.publicMetadata?.university as string) ||
           "جامعة كفر الشيخ";
+        const initialUniversity = initialRole === "owner" ? "مالك عقار سكن طلابي" : rawUniversity;
 
         const [created] = await db
           .insert(users)
@@ -119,9 +122,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
             email: primaryEmail,
             nationalId: rawNationalId,
             phoneNumber: rawPhone,
-            university: rawUniversity,
+            university: initialUniversity,
             avatarUrl,
-            role: "student",
+            role: initialRole,
             isVerified: false,
           })
           .returning();

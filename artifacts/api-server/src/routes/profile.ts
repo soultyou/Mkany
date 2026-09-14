@@ -3,6 +3,7 @@ import { requireAuth } from "../middlewares/auth";
 import { db, users } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { UpdateProfileBody } from "@workspace/api-zod";
+import { clerkClient } from "@clerk/express";
 
 const profileRouter = Router();
 
@@ -96,10 +97,21 @@ profileRouter.post("/onboarding", async (req, res) => {
     return;
   }
 
-  // Security check 2: Prevent any student account that has established profile data from converting to owner
+  // Security check 2: Prevent any student account that has established profile data or without owner signup intent from converting to owner
   if (dbUser.role === "student" && accountType === "owner") {
     if (dbUser.nationalId !== "00000000000000" || dbUser.phoneNumber !== "01000000000") {
       res.status(403).json({ error: "Forbidden", message: "Existing Student account cannot be converted to Owner" });
+      return;
+    }
+    try {
+      const clerkUser = await clerkClient.users.getUser(dbUser.clerkUserId);
+      const clerkRole = (clerkUser?.unsafeMetadata?.role as string) || (clerkUser?.publicMetadata?.role as string);
+      if (clerkRole !== "owner") {
+        res.status(403).json({ error: "Forbidden", message: "Unauthorized account type conversion attempt to owner" });
+        return;
+      }
+    } catch {
+      res.status(403).json({ error: "Forbidden", message: "Could not verify account creation intent" });
       return;
     }
   }

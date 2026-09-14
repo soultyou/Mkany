@@ -36,15 +36,28 @@ export interface StudentUser {
 
 export function isOnboardingRequired(user: StudentUser | null): boolean {
   if (!user) return false;
-  if (user.role === "admin" || user.role === "super_admin" || user.role === "owner") return false;
-  if (
-    !user.fullName ||
-    user.nationalId === "00000000000000" ||
-    user.phoneNumber === "01000000000" ||
-    !user.nationalId ||
-    !user.phoneNumber
-  ) {
-    return true;
+  if (user.role === "admin" || user.role === "super_admin") return false;
+  
+  if (user.role === "student") {
+    if (
+      !user.fullName ||
+      user.nationalId === "00000000000000" ||
+      user.phoneNumber === "01000000000" ||
+      !user.nationalId ||
+      !user.phoneNumber
+    ) {
+      return true;
+    }
+  } else if (user.role === "owner") {
+    if (
+      !user.fullName ||
+      user.fullName === "مستخدم مكاني" ||
+      !user.phoneNumber ||
+      user.phoneNumber === "01000000000" ||
+      !user.phoneNumber
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -69,6 +82,8 @@ interface AuthContextType {
   openSignUp: (props?: any) => void;
   signOut: () => Promise<void>;
   localRoleOverride: "student" | "owner" | "admin" | "super_admin" | null;
+  signupIntent: "student" | "owner";
+  setSignupIntent: (intent: "student" | "owner") => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -79,6 +94,16 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
   const clerk = useClerk();
   
   const [sessionUser, setSessionUser] = useState<StudentUser | null>(null);
+  const [signupIntent, setSignupIntentState] = useState<"student" | "owner">(() => {
+    return (sessionStorage.getItem("mkany_signup_intent") as "student" | "owner") || "student";
+  });
+
+  const setSignupIntent = (intent: "student" | "owner") => {
+    setSignupIntentState(intent);
+    try {
+      sessionStorage.setItem("mkany_signup_intent", intent);
+    } catch {}
+  };
 
   // Sync token getter for api-client
   useEffect(() => {
@@ -134,6 +159,12 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
         },
         body: JSON.stringify(onboardingData),
       });
+
+      setSignupIntent("student");
+      try {
+        sessionStorage.removeItem("mkany_signup_intent");
+      } catch {}
+
       return updated;
   };
 
@@ -195,9 +226,17 @@ export function ClerkAuthProvider({ children, onToast }: { children: ReactNode; 
         completeUserOnboarding,
         switchRole,
         openSignIn: () => clerk.openSignIn(),
-        openSignUp: () => clerk.openSignUp(),
+        openSignUp: (props?: any) => {
+          const intent = props?.intent || signupIntent;
+          clerk.openSignUp({
+            ...props,
+            ...(intent === "owner" ? { unsafeMetadata: { role: "owner", ...(props?.unsafeMetadata || {}) } } : {})
+          });
+        },
         signOut: () => clerk.signOut(),
-        localRoleOverride: null
+        localRoleOverride: null,
+        signupIntent,
+        setSignupIntent
       }}>
         {children}
       </AuthContext.Provider>
@@ -245,8 +284,8 @@ export function SignInButton({ children, mode, ...props }: any) {
   });
 }
 
-export function SignUpButton({ children, mode, ...props }: any) {
-  const { openSignUp } = useAuth();
+export function SignUpButton({ children, mode, intent, ...props }: any) {
+  const { openSignUp, setSignupIntent } = useAuth();
   const child = React.Children.only(children) as React.ReactElement<any>;
   
   return React.cloneElement(child, {
@@ -254,7 +293,13 @@ export function SignUpButton({ children, mode, ...props }: any) {
       if (child.props && child.props.onClick) {
         child.props.onClick(e);
       }
-      openSignUp(props);
+      if (intent) {
+        setSignupIntent(intent);
+      }
+      openSignUp({
+        ...props,
+        intent
+      });
     }
   });
 }

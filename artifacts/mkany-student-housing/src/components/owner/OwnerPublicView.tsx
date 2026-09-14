@@ -96,7 +96,7 @@ export function OwnerPublicView({
                       </button>
                     </SignInButton>
 
-                    <SignUpButton mode="modal">
+                    <SignUpButton mode="modal" intent="owner">
                       <button 
                         className="flex items-center gap-2 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-bold text-foreground hover:bg-muted transition-colors"
                         data-testid="button-owner-signup"

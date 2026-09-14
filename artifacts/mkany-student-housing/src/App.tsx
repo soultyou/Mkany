@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Heart, Search, Menu, X, Moon, Sun, ShieldCheck, ChevronDown, MapPin, GraduationCap, Sparkles, ArrowLeft, Ruler, BedDouble, Bath, Users, Building2, CalendarDays, Wifi, Sofa, Star, Check, LockKeyhole, Plus, BarChart3, Eye, Clock3, SlidersHorizontal, MessageCircle, FileText, Send, RefreshCw, Copy, Download, Home as HomeIcon, UserRound, Zap, Instagram, Linkedin, Facebook, Sparkle, CircleDollarSign, Crown, LifeBuoy } from "lucide-react";
+import { Heart, Search, Menu, X, Moon, Sun, ShieldCheck, ChevronDown, MapPin, GraduationCap, Sparkles, ArrowLeft, Ruler, BedDouble, Bath, Users, Building2, CalendarDays, Wifi, Sofa, Star, Check, LockKeyhole, Plus, BarChart3, Eye, Clock3, SlidersHorizontal, MessageCircle, FileText, Send, RefreshCw, Copy, Download, Home as HomeIcon, UserRound, Zap, Instagram, Linkedin, Facebook, Sparkle, CircleDollarSign, Crown, LifeBuoy, Share2, Maximize2, Box } from "lucide-react";
 import { Router as WouterRouter, Route, Switch, useLocation } from "wouter";
 import { 
   ClerkAuthProvider, 
@@ -13,6 +13,7 @@ import {
   SignedIn, 
   SignedOut, 
   useUser,
+  useAuth,
   isOnboardingRequired
 } from "@/components/auth/clerk-auth";
 import { OnboardingModal } from "@/components/auth/OnboardingModal";
@@ -30,6 +31,7 @@ import {
   syncPlatformPropertiesFromApi
 } from "@/lib/inspections-store";
 import { getStudentFavoritesApi, addFavoriteApi, removeFavoriteApi } from "@/lib/favorites-store";
+import { getServiceRatingsApi } from "@/lib/api-client";
 import { InteractiveLeafletMap } from "@/components/map/InteractiveLeafletMap";
 import { calcHaversineDistanceMeters } from "@/lib/geo-utils";
 const logo = "/mkany-logo.png";
@@ -94,7 +96,9 @@ function Header({
   openToast,
   savedCount = 0,
   studentTab,
-  setStudentTab
+  setStudentTab,
+  ownerTab,
+  setOwnerTab
 }: { 
   light: boolean; 
   onTheme: () => void; 
@@ -104,10 +108,13 @@ function Header({
   savedCount?: number;
   studentTab?: "bookings" | "favorites" | "profile" | "support";
   setStudentTab?: (t: "bookings" | "favorites" | "profile" | "support") => void;
+  ownerTab?: "units" | "inspections" | "bookings" | "support";
+  setOwnerTab?: (t: "units" | "inspections" | "bookings" | "support") => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { user } = useUser();
-  const go = (id: string) => { setMenuOpen(false); document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); };
+  const go = (id: string) => { setMenuOpen(false); setMoreOpen(false); document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); };
 
   const handleLogoClick = () => {
     setView("listings");
@@ -118,7 +125,18 @@ function Header({
     if (setStudentTab) setStudentTab(tab);
     setView("studentDashboard");
     setMenuOpen(false);
+    setMoreOpen(false);
   };
+
+  const navToOwnerTab = (tab: "units" | "inspections" | "bookings" | "support") => {
+    if (setOwnerTab) setOwnerTab(tab);
+    setView("ownerDashboard");
+    setMenuOpen(false);
+    setMoreOpen(false);
+  };
+
+  const isOwner = user?.role === "owner";
+  const isStudent = user?.role === "student" || (user && user.role !== "owner" && user.role !== "admin" && user.role !== "super_admin");
 
   return <>
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-xl">
@@ -128,103 +146,87 @@ function Header({
           <img src={logo} alt="مكاني" className="logo-mark h-11 w-11 sm:h-12 sm:w-12 object-contain shrink-0 group-hover:scale-105 transition-transform" />
           <span className="hidden text-right leading-tight sm:block"><strong className="block text-base sm:text-lg font-black tracking-wide">MKANY</strong><small className="text-[10px] text-muted-foreground block font-medium">سكنك يبدأ من هنا</small></span>
         </button>
-        <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground md:flex">
-          <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
-          <button onClick={() => { setView("listings"); go("discover"); }} className="hover:text-primary transition-colors" data-testid="link-discover">اكتشف السكن</button>
-          
-          <SignedIn>
-            {user?.role !== "owner" && (
-              <>
-                <button 
-                  onClick={() => navToStudentTab("bookings")} 
-                  className={`hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "bookings" ? "text-primary font-bold" : ""}`} 
-                  data-testid="link-my-bookings"
-                >
-                  حجوزاتي
-                </button>
-                <button 
-                  onClick={() => navToStudentTab("favorites")} 
-                  className={`flex items-center gap-1.5 hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "favorites" ? "text-primary font-bold" : ""}`} 
-                  data-testid="link-my-favorites"
-                >
-                  <span>المفضلة</span>
-                  {savedCount > 0 && (
-                    <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white" data-testid="badge-favorites-count">
-                      {savedCount}
-                    </span>
-                  )}
-                </button>
-                <button 
-                  onClick={() => navToStudentTab("support")} 
-                  className={`hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "support" ? "text-primary font-bold" : ""}`} 
-                  data-testid="link-support"
-                >
-                  الدعم والمساعدة
-                </button>
-              </>
-            )}
-          </SignedIn>
 
-          {user?.role !== "student" && (
-            <button onClick={() => setView("ownerPublic")} className={`hover:text-primary transition-colors ${activeView === "ownerPublic" ? "text-primary font-bold" : ""}`} data-testid="link-owners">للملاك</button>
+        {/* Desktop Navigation */}
+        <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground md:flex">
+          {isOwner ? (
+            <>
+              <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
+              <button onClick={() => navToOwnerTab("units")} className={`hover:text-primary transition-colors ${activeView === "ownerDashboard" && ownerTab === "units" ? "text-primary font-bold" : ""}`} data-testid="link-owner-units">العقارات</button>
+              <button onClick={() => navToOwnerTab("inspections")} className={`hover:text-primary transition-colors ${activeView === "ownerDashboard" && ownerTab === "inspections" ? "text-primary font-bold" : ""}`} data-testid="link-owner-inspections">المعاينات</button>
+              <button onClick={() => navToOwnerTab("bookings")} className={`hover:text-primary transition-colors ${activeView === "ownerDashboard" && ownerTab === "bookings" ? "text-primary font-bold" : ""}`} data-testid="link-owner-bookings">الحجوزات</button>
+              <div className="relative">
+                <button onClick={() => setMoreOpen(!moreOpen)} className="flex items-center gap-1 hover:text-primary transition-colors" data-testid="link-owner-more">
+                  <span>المزيد</span>
+                  <ChevronDown size={14} className={`transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+                </button>
+                {moreOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-card p-2 shadow-xl z-50 flex flex-col gap-1 text-right">
+                    <button onClick={() => navToOwnerTab("units")} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">حسابي وملفي</button>
+                    <button onClick={() => navToOwnerTab("support")} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">الدعم والمساعدة</button>
+                    <button onClick={() => { setView("ownerPublic"); setMoreOpen(false); }} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">للملاك والخدمات</button>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : isStudent ? (
+            <>
+              <button onClick={() => { setView("listings"); go("home"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary font-bold" : ""}`} data-testid="link-home">الرئيسية</button>
+              <button onClick={() => { setView("listings"); go("discover"); }} className={`hover:text-primary transition-colors ${activeView === "listings" ? "text-primary" : ""}`} data-testid="link-discover">اكتشف</button>
+              <button onClick={() => navToStudentTab("favorites")} className={`flex items-center gap-1 hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "favorites" ? "text-primary font-bold" : ""}`} data-testid="link-favorites">
+                <span>المفضلة</span>
+                {savedCount > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-extrabold text-white">{savedCount}</span>}
+              </button>
+              <button onClick={() => navToStudentTab("bookings")} className={`hover:text-primary transition-colors ${activeView === "studentDashboard" && studentTab === "bookings" ? "text-primary font-bold" : ""}`} data-testid="link-bookings">حجوزاتي</button>
+              <div className="relative">
+                <button onClick={() => setMoreOpen(!moreOpen)} className="flex items-center gap-1 hover:text-primary transition-colors" data-testid="link-student-more">
+                  <span>المزيد</span>
+                  <ChevronDown size={14} className={`transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+                </button>
+                {moreOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-card p-2 shadow-xl z-50 flex flex-col gap-1 text-right">
+                    <button onClick={() => navToStudentTab("profile")} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">حسابي</button>
+                    <button onClick={() => navToStudentTab("profile")} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">التحقق الجامعي</button>
+                    <button onClick={() => navToStudentTab("support")} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">الدعم والمساعدة</button>
+                    <button onClick={() => { setView("listings"); go("how"); setMoreOpen(false); }} className="rounded-lg px-3 py-2 text-xs font-bold text-foreground hover:bg-muted text-right">كيف تعمل مكاني؟</button>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setView("listings"); go("home"); }} className="hover:text-primary transition-colors" data-testid="link-home">الرئيسية</button>
+              <button onClick={() => { setView("listings"); go("discover"); }} className="hover:text-primary transition-colors" data-testid="link-discover">اكتشف السكن</button>
+              <button onClick={() => setView("ownerPublic")} className="hover:text-primary transition-colors" data-testid="link-owners">للملاك</button>
+              <button onClick={() => { setView("listings"); go("how"); }} className="hover:text-primary transition-colors" data-testid="link-about">كيف تعمل مكاني؟</button>
+            </>
           )}
-          <button onClick={() => { setView("listings"); go("how"); }} className="hover:text-primary transition-colors" data-testid="link-about">كيف تعمل مكاني؟</button>
         </nav>
+
         <div className="flex items-center gap-2.5">
           <button onClick={onTheme} className="rounded-full border border-border p-2.5 text-muted-foreground hover:border-primary hover:text-primary transition-colors" aria-label={light ? "تفعيل الوضع الداكن" : "تفعيل الوضع الفاتح"} data-testid="button-theme-toggle">{light ? <Moon size={18} /> : <Sun size={18} />}</button>
 
-          {/* أزرار مخصصة حسب دور المستخدم المسجل */}
           <SignedIn>
-            {/* زر لوحة الطالب وحجوزاته - يظهر فقط للطلاب والمستخدمين العاديين */}
-            {user?.role !== "owner" && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => navToStudentTab("favorites")}
-                  className={`hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold transition-all text-foreground hover:bg-muted ${
-                    activeView === "studentDashboard" && studentTab === "favorites" ? "border-primary text-primary" : ""
-                  }`}
-                  data-testid="header-button-student-favorites"
-                >
-                  <Heart size={15} className="text-rose-500 fill-rose-500/20" />
-                  <span>المفضلة</span>
-                  {savedCount > 0 && (
-                    <span className="rounded-full bg-rose-500 text-white px-1.5 py-0.5 text-[10px] font-extrabold">
-                      {savedCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => navToStudentTab("bookings")}
-                  className={`hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                    activeView === "studentDashboard" && studentTab === "bookings"
-                      ? "bg-primary text-primary-foreground shadow"
-                      : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                  }`}
-                  data-testid="header-button-student-dashboard"
-                >
-                  <FileText size={15} />
-                  حجوزاتي وبياناتي
-                </button>
-              </div>
-            )}
-
-            {/* زر لوحة المالك - يظهر للملاك */}
-            {user?.role === "owner" && (
+            {isOwner && (
               <button
-                onClick={() => setView("ownerDashboard")}
-                className={`hidden lg:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                  activeView === "ownerDashboard"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
-                }`}
+                onClick={() => navToOwnerTab("units")}
+                className="hidden lg:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold bg-primary text-primary-foreground shadow"
                 data-testid="header-button-owner-dashboard"
               >
                 <Building2 size={15} />
                 لوحة تحكم المالك
               </button>
             )}
-
-            {/* زر لوحة الإدارة والمشرفين - يظهر للآدمن والسوبر آدمن */}
+            {isStudent && (
+              <button
+                onClick={() => navToStudentTab("bookings")}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold bg-primary text-primary-foreground shadow"
+                data-testid="header-button-student-dashboard"
+              >
+                <FileText size={15} />
+                حجوزاتي
+              </button>
+            )}
             {(user?.role === "admin" || user?.role === "super_admin") && (
               <a
                 href="/admin"
@@ -232,7 +234,7 @@ function Header({
                 data-testid="header-button-admin-portal"
               >
                 <ShieldCheck size={15} />
-                <span>لوحة الإدارة والمشرفين</span>
+                <span>لوحة الإدارة</span>
               </a>
             )}
           </SignedIn>
@@ -253,112 +255,100 @@ function Header({
           <SignedIn>
             <div className="flex items-center gap-3">
               <NotificationBell />
-              <div className="hidden xl:flex flex-col text-right leading-tight">
-                <span className="text-xs font-bold text-foreground">
-                  أهلاً بك، {user?.fullName?.split(" ")[0]} 👋
-                </span>
-                <span className="text-[10px] text-muted-foreground font-medium">
-                  {user?.role === "owner" ? "مالك عقارات موثق" : (user?.role === "admin" || user?.role === "super_admin") ? "فريق المعاينة والتوثيق" : user?.university || "طالب مكاني"}
-                </span>
-              </div>
               <UserButton />
             </div>
           </SignedIn>
         </div>
       </div>
     </header>
+
     <div className="border-b border-border bg-card/60">
       <div className="mx-auto flex max-w-7xl items-center justify-center gap-5 overflow-x-auto whitespace-nowrap px-4 py-2 text-[11px] font-semibold text-muted-foreground sm:gap-9 sm:text-xs">
         <span className="flex items-center gap-1.5"><Building2 size={13} className="text-primary" />+٢,٤٠٠ وحدة سكنية</span><span className="flex items-center gap-1.5"><GraduationCap size={14} className="text-primary" />١٥ جامعة</span><span className="flex items-center gap-1.5"><Star size={13} className="text-amber-400" />٤٫٨/٥ تقييم الطلاب</span><span className="flex items-center gap-1.5"><LockKeyhole size={13} className="text-primary" />دفع آمن ١٠٠٪</span>
       </div>
     </div>
+
     {menuOpen && <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-sm md:hidden" onClick={() => setMenuOpen(false)}>
-      <aside className="mr-auto h-full w-[82%] max-w-sm border-l border-border bg-background p-6 shadow-2xl flex flex-col justify-between" onClick={(e) => e.stopPropagation()}>
+      <aside className="mr-auto h-full w-[82%] max-w-sm border-l border-border bg-background p-6 shadow-2xl flex flex-col justify-between overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div>
-          <div className="mb-8 flex items-center justify-between">
-            <img src={logo} alt="مكاني" className="logo-mark h-14 w-14 object-contain" />
+          <div className="mb-6 flex items-center justify-between">
+            <img src={logo} alt="مكاني" className="logo-mark h-12 w-12 object-contain" />
             <button onClick={() => setMenuOpen(false)} className="rounded-full border border-border p-2" aria-label="إغلاق القائمة" data-testid="button-close-menu"><X size={18} /></button>
           </div>
 
           <SignedIn>
-            <div className="mb-6 rounded-2xl border border-border bg-card p-3.5">
-              <div className="flex items-center justify-between">
-                <div className="text-right">
-                  <strong className="block text-sm font-bold text-foreground">{user?.fullName}</strong>
-                  <span className="text-xs text-muted-foreground">{user?.role === "owner" ? "مالك عقارات" : user?.university || "طالب"}</span>
-                </div>
-                <UserButton />
+            <div className="mb-5 rounded-2xl border border-border bg-card p-3.5 flex items-center justify-between">
+              <div className="text-right">
+                <strong className="block text-sm font-bold text-foreground">{user?.fullName}</strong>
+                <span className="text-xs text-muted-foreground">{isOwner ? "مالك عقارات موثق" : user?.university || "طالب مكاني"}</span>
               </div>
+              <UserButton />
             </div>
           </SignedIn>
 
-          <nav className="flex flex-col gap-4 text-base font-bold">
-            <button onClick={() => { setView("listings"); go("home"); }} className="text-right hover:text-primary" data-testid="mobile-link-home">الرئيسية</button>
-            <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary flex items-center gap-2" data-testid="mobile-link-discover"><Search size={16} />اكتشف السكن</button>
-            
-            <SignedIn>
-              {user?.role !== "owner" && (
-                <>
-                  <button 
-                    onClick={() => navToStudentTab("bookings")} 
-                    className="text-right text-primary flex items-center gap-2" 
-                    data-testid="mobile-link-student-bookings"
-                  >
-                    <FileText size={16} />
-                    حجوزاتي
-                  </button>
-                  <button 
-                    onClick={() => navToStudentTab("favorites")} 
-                    className="text-right hover:text-primary flex items-center justify-between gap-2" 
-                    data-testid="mobile-link-student-favorites"
-                  >
-                    <span className="flex items-center gap-2"><Heart size={16} className="text-rose-500 fill-rose-500/20" />المفضلة</span>
-                    {savedCount > 0 && (
-                      <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">
-                        {savedCount}
-                      </span>
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => navToStudentTab("profile")} 
-                    className="text-right hover:text-primary flex items-center gap-2" 
-                    data-testid="mobile-link-student-profile"
-                  >
-                    <UserRound size={16} />
-                    الملف الشخصي
-                  </button>
-                  <button 
-                    onClick={() => navToStudentTab("support")} 
-                    className="text-right hover:text-primary flex items-center gap-2" 
-                    data-testid="mobile-link-student-support"
-                  >
-                    <LifeBuoy size={16} />
-                    الدعم والمساعدة
-                  </button>
-                </>
-              )}
+          <nav className="flex flex-col gap-3 text-base font-bold">
+            <button onClick={() => { setView("listings"); go("home"); }} className="text-right hover:text-primary py-2" data-testid="mobile-link-home">الرئيسية</button>
 
-              {(user?.role === "owner" || user?.role === "admin" || user?.role === "super_admin") && (
-                <button 
-                  onClick={() => { setView("ownerDashboard"); setMenuOpen(false); }} 
-                  className="text-right text-primary flex items-center gap-2" 
-                  data-testid="mobile-link-owner-dashboard"
-                >
-                  <Building2 size={16} />
-                  لوحة تحكم المالك
+            {isOwner ? (
+              <>
+                <button onClick={() => navToOwnerTab("units")} className="text-right text-primary flex items-center gap-2 py-2" data-testid="mobile-link-owner-units">
+                  <Building2 size={18} /> العقارات
                 </button>
-              )}
-            </SignedIn>
-
-            {user?.role !== "student" && (
-              <button onClick={() => { setView("ownerPublic"); setMenuOpen(false); }} className="text-right hover:text-primary" data-testid="mobile-link-owners">للملاك (تفاصيل الخدمات والانضمام)</button>
+                <button onClick={() => navToOwnerTab("inspections")} className="text-right hover:text-primary flex items-center gap-2 py-2" data-testid="mobile-link-owner-inspections">
+                  <Eye size={18} /> المعاينات
+                </button>
+                <button onClick={() => navToOwnerTab("bookings")} className="text-right hover:text-primary flex items-center gap-2 py-2" data-testid="mobile-link-owner-bookings">
+                  <FileText size={18} /> الحجوزات
+                </button>
+                <div className="border-t border-border my-2 pt-2">
+                  <span className="text-xs text-muted-foreground block mb-2 font-normal">المزيد</span>
+                  <button onClick={() => navToOwnerTab("support")} className="text-right hover:text-primary flex items-center gap-2 py-2 text-sm" data-testid="mobile-link-owner-support">
+                    <LifeBuoy size={16} /> الدعم والمساعدة
+                  </button>
+                  <button onClick={() => { setView("ownerPublic"); setMenuOpen(false); }} className="text-right hover:text-primary flex items-center gap-2 py-2 text-sm" data-testid="mobile-link-owner-public">
+                    <Crown size={16} /> خدمات الملاك
+                  </button>
+                </div>
+              </>
+            ) : isStudent ? (
+              <>
+                <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary flex items-center gap-2 py-2" data-testid="mobile-link-discover">
+                  <Search size={18} /> اكتشف السكن
+                </button>
+                <button onClick={() => navToStudentTab("favorites")} className="text-right hover:text-primary flex items-center justify-between py-2" data-testid="mobile-link-favorites">
+                  <span className="flex items-center gap-2"><Heart size={18} className="text-rose-500 fill-rose-500/20" /> المفضلة</span>
+                  {savedCount > 0 && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">{savedCount}</span>}
+                </button>
+                <button onClick={() => navToStudentTab("bookings")} className="text-right text-primary flex items-center gap-2 py-2" data-testid="mobile-link-bookings">
+                  <FileText size={18} /> حجوزاتي
+                </button>
+                <div className="border-t border-border my-2 pt-2">
+                  <span className="text-xs text-muted-foreground block mb-2 font-normal">المزيد</span>
+                  <button onClick={() => navToStudentTab("profile")} className="text-right hover:text-primary flex items-center gap-2 py-2 text-sm" data-testid="mobile-link-profile">
+                    <UserRound size={16} /> حسابي والتحقق
+                  </button>
+                  <button onClick={() => navToStudentTab("support")} className="text-right hover:text-primary flex items-center gap-2 py-2 text-sm" data-testid="mobile-link-support">
+                    <LifeBuoy size={16} /> الدعم والمساعدة
+                  </button>
+                  <button onClick={() => { setView("listings"); go("how"); setMenuOpen(false); }} className="text-right hover:text-primary flex items-center gap-2 py-2 text-sm" data-testid="mobile-link-about">
+                    <Sparkles size={16} /> كيف تعمل مكاني؟
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button onClick={() => { setView("listings"); go("discover"); }} className="text-right hover:text-primary flex items-center gap-2 py-2" data-testid="mobile-link-discover">
+                  <Search size={18} /> اكتشف السكن
+                </button>
+                <button onClick={() => { setView("ownerPublic"); setMenuOpen(false); }} className="text-right hover:text-primary py-2" data-testid="mobile-link-owners">للملاك والانضمام</button>
+                <button onClick={() => { setView("listings"); go("how"); }} className="text-right hover:text-primary py-2" data-testid="mobile-link-how">كيف تعمل مكاني؟</button>
+              </>
             )}
-            <button onClick={() => { setView("listings"); go("how"); }} className="text-right hover:text-primary" data-testid="mobile-link-how">كيف تعمل مكاني؟</button>
           </nav>
         </div>
 
         <SignedOut>
-          <div className="mt-6 flex flex-col gap-2.5 pt-4 border-t border-border">
+          <div className="mt-4 flex flex-col gap-2.5 pt-4 border-t border-border">
             <SignInButton mode="modal">
               <button onClick={() => setMenuOpen(false)} className="w-full rounded-xl border border-border py-3 text-sm font-bold text-foreground hover:bg-muted transition-colors" data-testid="mobile-button-login">
                 تسجيل الدخول
@@ -576,8 +566,24 @@ function PropertyDetail({
 }) {
   const [media, setMedia] = useState<"photos" | "video">("photos"); 
   const [photo, setPhoto] = useState(0);
+  const [isFullScreenMedia, setIsFullScreenMedia] = useState(false);
+  const [touchStartX, setTouchStartX] = useState(0);
   const [selectedAmenityKey, setSelectedAmenityKey] = useState<string | null>(null);
   const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
+
+  const [servicesAccordionOpen, setServicesAccordionOpen] = useState(true);
+  const [isUnifiedAmenitiesExpanded, setIsUnifiedAmenitiesExpanded] = useState(false);
+  const [isAllAmenitiesOpen, setIsAllAmenitiesOpen] = useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [isRulesExpanded, setIsRulesExpanded] = useState(false);
+
+  const [categoryOpenState, setCategoryOpenState] = useState<Record<string, boolean>>({
+    universityGate: true,
+    hospital: true,
+    transportation: true,
+    supermarket: true,
+    cafeRestaurant: true
+  });
 
   const [dynamicAmenitiesData, setDynamicAmenitiesData] = useState<NearbyAmenities | null>(null);
   const [isLoadingAmenities, setIsLoadingAmenities] = useState(false);
@@ -599,7 +605,31 @@ function PropertyDetail({
         if (res.ok) {
           const data = await res.json();
           if (active && data.success && data.amenities) {
-            setDynamicAmenitiesData(data.amenities);
+            const amenities = { ...data.amenities };
+
+            const fetchAndAttachRating = async (amenity: any, category: string) => {
+              if (amenity && amenity.osmType && amenity.osmId && !amenity.rating) {
+                try {
+                  const ratingRes = await getServiceRatingsApi({ osmType: String(amenity.osmType), osmId: String(amenity.osmId), category });
+                  if (ratingRes && ratingRes.rating && ratingRes.rating.rating) {
+                    amenity.rating = String(ratingRes.rating.rating);
+                  }
+                } catch (e) { console.error("Error fetching rating:", e); }
+              }
+              return amenity;
+            };
+
+            const keys = Object.keys(amenities) as Array<keyof NearbyAmenities>;
+            for (const key of keys) {
+              const amenity = amenities[key];
+              if (key.endsWith('List') && Array.isArray(amenity)) {
+                await Promise.all(amenity.map(am => fetchAndAttachRating(am, key.replace('List', ''))));
+              } else if (amenity) {
+                await fetchAndAttachRating(amenity, key);
+              }
+            }
+
+            setDynamicAmenitiesData(amenities);
             return;
           }
         }
@@ -611,7 +641,6 @@ function PropertyDetail({
         }
       }
 
-      // Fallback only if live fetch fails and property already had nearbyAmenities
       if (active && (property as any).nearbyAmenities) {
         setDynamicAmenitiesData((property as any).nearbyAmenities);
       }
@@ -636,26 +665,21 @@ function PropertyDetail({
     const year = d.getFullYear();
     const month = d.getMonth();
     
-    // First day of the month
-    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sunday, 6 is Saturday
-    
-    // Total days in the month
+    const firstDayIndex = new Date(year, month, 1).getDay();
     const totalDays = new Date(year, month + 1, 0).getDate();
     
     const days: ({ date: Date; day: number; isToday: boolean; formatted: string } | null)[] = [];
     
-    // Empty cells before first day
     for (let i = 0; i < firstDayIndex; i++) {
       days.push(null);
     }
     
-    // Days of the month
     for (let i = 1; i <= totalDays; i++) {
       const dateObj = new Date(year, month, i);
       const isDayToday = dateObj.getDate() === today.getDate() && 
                          dateObj.getMonth() === today.getMonth() && 
                          dateObj.getFullYear() === today.getFullYear();
-                         
+                          
       days.push({
         date: dateObj,
         day: i,
@@ -667,7 +691,6 @@ function PropertyDetail({
     return days;
   };
 
-  // Helper to determine status for a specific date
   const getDayStatus = (date: Date, property: any, availablePlaces: number) => {
     if (availablePlaces <= 0) {
       return "unavailable";
@@ -712,7 +735,6 @@ function PropertyDetail({
     ? (property as any).availablePlaces 
     : Math.max(0, capacity - (currentRoommates + activeBookingsCount));
 
-  // Safe parsing of images
   const propertyImages = Array.isArray(property.images) ? property.images : [];
   const hasImages = propertyImages.length > 0;
   const safePhotoIndex = photo < propertyImages.length ? photo : 0;
@@ -727,7 +749,6 @@ function PropertyDetail({
     [Users, "الشاغر الحالي", availablePlaces > 0 ? `${availablePlaces} أماكن` : "مكتمل الحجز"]
   ];
   
-  // بيانات الخدمات والمنطقة المحيطة الديناميكية المعتمدة من الآدمن أو المستردة ديناميكياً من الخريطة
   const effectiveAmenities = useMemo(() => {
     if (dynamicAmenitiesData) {
       return dynamicAmenitiesData;
@@ -739,7 +760,6 @@ function PropertyDetail({
     return getAmenitiesDisplayList(effectiveAmenities, (property as any).lat, (property as any).lng);
   }, [effectiveAmenities, property]);
 
-  // Auto-select first available amenity when list loads
   useEffect(() => {
     if (baseAmenitiesList.length > 0) {
       const firstUniv = baseAmenitiesList.find(a => a.key.toString().startsWith("universityGate"));
@@ -753,7 +773,6 @@ function PropertyDetail({
     }
   }, [baseAmenitiesList]);
 
-  // Sort amenities: prioritize university, then sort by real geographic distance
   const dynamicAmenities = useMemo(() => {
     const propLat = (property as any).lat;
     const propLng = (property as any).lng;
@@ -775,7 +794,6 @@ function PropertyDetail({
     });
   }, [baseAmenitiesList, property]);
 
-  // سياسات وقوانين العقار
   const rules = property.rules || "";
   const smoking = property.smoking || "";
   const pets = property.pets || "";
@@ -787,657 +805,574 @@ function PropertyDetail({
 
   const owner = (property as any).owner || { fullName: "مالك معتمد في مكاني", avatarUrl: null, isVerified: true };
 
-  return <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}><div className="p-4 pt-14 sm:p-7 sm:pt-14">
-    {/* 1. هوية العقار والمؤشرات الرئيسية (العنوان، السعر، التوثيق، جودة الحياة) */}
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-sm text-muted-foreground font-semibold">
-            <MapPin size={15} className="text-primary" />
-            {property.city} · {property.university}
-          </span>
-          {property.verified && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
-              <ShieldCheck size={12} />
-              موثّق ومعتمد
-            </span>
-          )}
-          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-            property.status === "متاح" 
-              ? "bg-teal-500/10 border border-teal-500/20 text-teal-600" 
-              : "bg-amber-500/10 border border-amber-500/20 text-amber-600"
-          }`}>
-            {property.status}
-          </span>
-          {property.livabilityScore > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600">
-              ★ مؤشر جودة الحياة: {property.livabilityScore} / ١٠٠
-            </span>
-          )}
-        </div>
-        <h2 className="text-2xl font-extrabold sm:text-3xl text-foreground">{property.title}</h2>
-      </div>
+  return (
+    <Modal onClose={onClose} wide label={`تفاصيل ${property.title}`}>
+      <div className="relative p-4 pt-14 sm:p-8 sm:pt-14 space-y-8 pb-24 sm:pb-12">
 
-      <div className="flex items-center gap-3">
-        {onSave && (
-          <button
-            onClick={onSave}
-            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all shadow-sm ${
-              saved
-                ? "border-rose-500 bg-rose-500 text-white"
-                : "border-border bg-card text-foreground hover:border-primary"
-            }`}
-            aria-label={saved ? "إزالة من المفضلة" : "إضافة للمفضلة"}
-            data-testid={`button-detail-save-${property.id}`}
-          >
-            <Heart size={15} fill={saved ? "currentColor" : "none"} />
-            {saved ? "في المفضلة" : "حفظ بالمفضلة"}
-          </button>
-        )}
-        <div className="text-left bg-primary/5 border border-primary/20 rounded-xl px-4 py-2">
-          <strong className="text-2xl font-black text-primary">{formatPrice(property.pricePerMonth)} <small className="text-xs font-bold text-primary">جنيه / شهر</small></strong>
-          <p className="text-[10px] font-semibold text-muted-foreground">شامل الرسوم الأساسية للإيجار</p>
-        </div>
-      </div>
-    </div>
-
-    {/* 2. معرض الصور والوسائط المطوّر (الصور + الفيديو + نموذج 3D) */}
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="relative h-64 sm:h-[390px] w-full bg-slate-950">
-        {media === "photos" ? (
-          hasImages ? (
-            <ImageWithFallback src={propertyImages[safePhotoIndex]} alt={property.title} className="h-full w-full object-cover" testId="img-detail-main" />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-white/80 text-center p-4">
-              <Building2 size={48} className="mb-3 text-white/55" />
-              <strong className="text-base">لا توجد صور متاحة</strong>
-              <span className="text-xs text-white/60">لم يتم رفع صور لهذا العقار حتى الآن</span>
-            </div>
-          )
-        ) : property.video360Url ? (
-          <div className="relative h-full w-full">
-            <video src={property.video360Url} className="h-full w-full object-cover" controls autoPlay muted data-testid="video-tour" />
-            <div className="absolute bottom-3 right-3 bg-slate-950/70 text-white text-[11px] px-3 py-1.5 rounded-lg border border-white/10">
-              فيديو توضيحي للعقار
-            </div>
-          </div>
-        ) : (
-          <div className="hero-wash flex h-full flex-col items-center justify-center gap-3 text-center text-white p-4">
-            <Sparkles className="text-primary" size={35} />
-            <strong>فيديو توضيحي</strong>
-            <span className="text-xs text-white/60">هذه الوحدة لا تحتوي على فيديو توضيحي متاح حالياً</span>
-          </div>
-        )}
-
-        {/* أزرار تبديل المعرض */}
-        <div className="absolute right-3 top-3 flex overflow-hidden rounded-lg border border-white/20 bg-slate-950/65 p-1 text-xs font-bold text-white">
-          <button onClick={() => setMedia("photos")} className={`rounded-md px-3 py-2 ${media === "photos" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-photos">
-            صور الوحدة
-          </button>
-          {property.video360Url && (
-            <button onClick={() => setMedia("video")} className={`rounded-md px-3 py-2 ${media === "video" ? "bg-primary text-primary-foreground" : ""}`} data-testid="button-media-video">
-              فيديو المعاينة
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* مصغرات الصور لسهولة التصفح */}
-      {hasImages && media === "photos" && (
-        <div className="flex gap-2 overflow-x-auto p-3 border-t border-border bg-card/50" data-testid="gallery-thumbnails">
-          {propertyImages.map((img, i) => (
-            <button 
-              key={img} 
-              onClick={() => { setPhoto(i); setMedia("photos"); }} 
-              className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-all ${
-                safePhotoIndex === i ? "border-primary scale-95" : "border-transparent opacity-85 hover:opacity-100"
-              }`} 
-              data-testid={`button-thumbnail-${i}`}
-            >
-              <ImageWithFallback src={img} alt="" className="h-full w-full object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-
-    {/* 3D Model Badge (عند توفره) */}
-    {property.model3dUrl && (
-      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/40 p-4" data-testid="badge-3d-available">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-blue-100 p-2.5 text-blue-600 shrink-0">
-            <Sparkle size={18} />
-          </div>
+        {/* 1. Information-First Summary Header */}
+        <div className="space-y-4 bg-card/60 p-6 rounded-3xl border border-border shadow-xs">
           <div>
-            <h4 className="text-sm font-bold text-blue-900">نموذج ثلاثي الأبعاد (3D Model) متوفر للعقار</h4>
-            <p className="mt-1 text-xs text-blue-800/80 leading-5">
-              تتوفر معاينة فراغية كاملة وتصميم ثلاثي الأبعاد تفاعلي آمن لهذه الوحدة السكنية. لحماية حقوق الخصوصية والأمان الفني للمالك والطلاب، يرجى تقديم طلب حجز للحصول على الرابط المعتمد رسمياً لتجربة التجول الافتراضي.
-            </p>
+            <h2 className="text-2xl font-extrabold sm:text-4xl text-foreground">{property.title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{property.address}</p>
           </div>
-        </div>
-      </div>
-    )}
 
-    {/* 3. التوفر والسعة الحالية (يظهر بارزاً قبل سياسات السكن) */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-summary">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-bold">حالة التوفر والسعة السكنية الشاغرة</h3>
-        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${
-          availablePlaces > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border border-red-500/20 text-red-500"
-        }`}>
-          {availablePlaces > 0 ? "متاح للحجز الفوري" : "غير متاح — مكتملة"}
-        </span>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-4">
-        {/* الأماكن المتاحة */}
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20 p-4">
-          <span className="block text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">الأماكن المتاحة</span>
-          <strong className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-            {availablePlaces > 0 ? `${availablePlaces} أسرة` : "٠ مكان"}
-          </strong>
-        </div>
-
-        {/* السعة والمشغول */}
-        <div className="rounded-xl border border-border bg-card p-4">
-          <span className="block text-xs font-semibold text-muted-foreground mb-1">المقاعد المشغولة</span>
-          <strong className="text-xl font-bold text-foreground">
-            {capacity - availablePlaces} من {capacity} أسرة
-          </strong>
-        </div>
-
-        {/* تاريخ بدء التوفر */}
-        <div className="rounded-xl border border-border bg-card p-4">
-          <span className="block text-xs font-semibold text-muted-foreground mb-1">متاح من تاريخ</span>
-          <strong className="text-sm font-bold text-foreground">
-            {property.availableFrom || "متاح الآن فوراً"}
-          </strong>
-        </div>
-
-        {/* حالة الوحدة */}
-        <div className="rounded-xl border border-border bg-card p-4">
-          <span className="block text-xs font-semibold text-muted-foreground mb-1">حالة الوحدة</span>
-          <strong className={`text-sm font-bold ${availablePlaces > 0 ? "text-emerald-600" : "text-red-500"}`}>
-            {availablePlaces > 0 ? "جاهزة للاستلام" : "مكتملة الحجز"}
-          </strong>
-        </div>
-      </div>
-    </section>
-
-    {/* 4. مواصفات وتفاصيل السكن */}
-    <section className="section-rule mt-7 pt-6 border-t border-border">
-      <h3 className="mb-4 text-lg font-bold">مواصفات وتفاصيل السكن</h3>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {facts.map(([Icon, label, value]) => (
-          <div className="rounded-lg border border-border bg-card p-3" key={label}>
-            <Icon size={17} className="mb-2 text-primary" />
-            <span className="block text-[11px] text-muted-foreground">{label}</span>
-            <strong className="text-sm">{value}</strong>
-          </div>
-        ))}
-      </div>
-    </section>
-
-    {/* 5. جدول مواعيد الحجوزات والتقويم التفاعلي */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-availability-calendar">
-      <h3 className="mb-1 text-lg font-bold">جدول مواعيد الحجوزات المتاحة</h3>
-      <p className="text-xs text-muted-foreground mb-4">اختر التاريخ المناسب لبدء معاينة أو حجز السكن مباشرة</p>
-
-      {/* تقويم تفاعلي جميل باللغة العربية */}
-      <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h4 className="text-sm font-bold text-foreground">جدول مواعيد الحجوزات (الشهور القادمة)</h4>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => {
-                setCalendarMonthOffset(prev => Math.max(0, prev - 1));
-              }}
-              disabled={calendarMonthOffset === 0}
-              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
-              data-testid="btn-calendar-prev"
-            >
-              &larr;
-            </button>
-            <span className="text-xs font-bold px-2 py-1 bg-muted rounded-md select-none">
-              {getCalendarMonthName(calendarMonthOffset)}
+          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground font-semibold">
+            <span className="flex items-center gap-1.5 text-primary">
+              <MapPin size={16} />
+              {property.city} · {property.university}
             </span>
-            <button 
-              onClick={() => {
-                setCalendarMonthOffset(prev => Math.min(3, prev + 1));
-              }}
-              disabled={calendarMonthOffset === 3}
-              className="p-1 rounded-md border border-border hover:bg-muted disabled:opacity-40 text-xs w-6 h-6 flex items-center justify-center font-bold"
-              data-testid="btn-calendar-next"
-            >
-              &rarr;
-            </button>
+            {reviews.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-600">
+                ★ {reviews.length} تقييمات الطلاب
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            {property.verified && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-600">
+                <ShieldCheck size={14} />
+                موثّق ومعتمد
+              </span>
+            )}
+            <span className={`inline-flex items-center rounded-full px-3.5 py-1 text-xs font-bold ${
+              availablePlaces > 0 ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border border-red-500/20 text-red-500"
+            }`}>
+              {availablePlaces > 0 ? `متاح — ${availablePlaces} أماكن شاغرة` : "مكتمل الحجز بالكامل"}
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between mt-2">
+            <div>
+              <span className="text-xs text-muted-foreground block font-medium">السعر للفرد / للسرير</span>
+              <strong className="text-2xl font-black text-primary">
+                {formatPrice(property.pricePerMonth)} جنيه
+              </strong>
+            </div>
+            <span className="text-xs font-bold text-primary/80 bg-primary/10 px-3 py-1.5 rounded-xl">
+              الشهر
+            </span>
           </div>
         </div>
-
-        {/* أسماء الأيام */}
-        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted-foreground mb-2">
-          {["ح", "ن", "ث", "ر", "خ", "ج", "س"].map(day => (
-            <div key={day} className="py-1">{day}</div>
-          ))}
-        </div>
-
-        {/* أيام التقويم */}
-        <div className="grid grid-cols-7 gap-1">
-          {getCalendarDays(calendarMonthOffset).map((dayObj, idx) => {
-            if (!dayObj) {
-              return <div key={`empty-${idx}`} className="aspect-square bg-transparent" />;
-            }
-            
-            const isToday = dayObj.isToday;
-            const status = getDayStatus(dayObj.date, property, availablePlaces);
-            
-            let statusClass = "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/25 border border-emerald-500/20 cursor-pointer hover:scale-105 active:scale-95";
-            let statusLabel = "متاح";
-            
-            if (status === "reserved") {
-              statusClass = "bg-amber-500/20 text-amber-700 hover:bg-amber-500/35 border border-amber-500/30 font-bold";
-              statusLabel = "محجوز";
-            } else if (status === "unavailable") {
-              statusClass = "bg-red-500/10 text-red-500 opacity-60 cursor-not-allowed border border-red-500/10";
-              statusLabel = "غير متاح";
-            }
-
-            const isSelectable = status === "available" && availablePlaces > 0;
-
-            return (
-              <div 
-                key={dayObj.formatted}
-                onClick={() => {
-                  if (isSelectable) {
-                    onBook(dayObj.formatted);
-                  }
-                }}
-                className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all select-none p-1 ${statusClass}`}
-                title={isSelectable ? `اضغط لحجز الموعد: ${dayObj.formatted}` : `${dayObj.formatted} - ${statusLabel}`}
-                data-testid={`calendar-day-${dayObj.formatted}`}
-              >
-                <span className="font-bold">{dayObj.day}</span>
-                <span className="text-[8px] font-medium opacity-80 scale-90">{statusLabel}</span>
-                {isToday && (
-                  <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />
-                )}
+        
+        {/* Full-Screen Lightbox Media Viewer */}
+        {isFullScreenMedia && (
+          <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-md p-4 text-white" data-testid="fullscreen-media-viewer">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-primary/20 px-3 py-1 text-xs font-bold text-primary">
+                  {safePhotoIndex + 1} / {propertyImages.length || 1}
+                </span>
+                <h3 className="text-sm font-bold truncate max-w-xs sm:max-w-md">{property.title}</h3>
               </div>
-            );
-          })}
-        </div>
-
-        {/* دليل التقويم */}
-        <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-emerald-500/25 border border-emerald-500/40 shrink-0" />
-            <span>متاح للحجز</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-amber-500/30 border border-amber-500/50 shrink-0" />
-            <span>محجوز</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-red-500/10 border border-red-500/20 shrink-0" />
-            <span>غير متاح / مكتملة</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    {/* 6. خريطة OpenStreetMap والخدمات المحيطة بالعقار */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-nearby-amenities">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold">الخريطة والخدمات المحيطة بالعقار</h3>
-          <p className="text-xs text-muted-foreground">تصفح مسافات الشوارع وأوقات السير مجاناً عبر OpenStreetMap و Leaflet.js</p>
-        </div>
-        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[11px] font-bold text-emerald-600">
-          OpenStreetMap & Leaflet ✓
-        </span>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-4 space-y-2.5 mb-4" data-testid="location-summary">
-        <div className="flex items-start gap-2 text-sm">
-          <MapPin size={17} className="text-primary shrink-0 mt-0.5" />
-          <div>
-            <strong className="block text-foreground">العنوان المعتمد:</strong>
-            <span className="text-muted-foreground">{property.address}</span>
-          </div>
-        </div>
-        <div className="grid gap-3 pt-2 text-xs text-muted-foreground sm:grid-cols-3 border-t border-border/60">
-          <div>
-            <strong>المدينة / المحافظة:</strong> {property.city}
-          </div>
-          <div>
-            <strong>الجامعة الأقرب:</strong> {property.university}
-          </div>
-          {((property as any).lat !== undefined && (property as any).lat !== null && (property as any).lng !== undefined && (property as any).lng !== null) ? (
-            <div>
-              <strong>الإحداثيات الجغرافية:</strong> {(property as any).lat?.toFixed(5)} , {(property as any).lng?.toFixed(5)}
+              <button 
+                onClick={() => setIsFullScreenMedia(false)}
+                className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20 transition-colors"
+                aria-label="إغلاق العرض الكامل"
+                data-testid="btn-close-fullscreen-media"
+              >
+                <X size={20} />
+              </button>
             </div>
-          ) : (
-            <div>
-              <strong>الإحداثيات الجغرافية:</strong> يحتاج تحديد الموقع
+
+            <div className="relative flex-1 flex items-center justify-center my-4 overflow-hidden">
+              {hasImages && (
+                <img 
+                  src={propertyImages[safePhotoIndex]} 
+                  alt={property.title} 
+                  className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-2xl"
+                />
+              )}
+              {propertyImages.length > 1 && (
+                <>
+                  <button 
+                    onClick={() => setPhoto((prev) => (prev > 0 ? prev - 1 : propertyImages.length - 1))}
+                    className="absolute right-4 rounded-full bg-black/60 p-3 text-white hover:bg-primary transition-colors shadow-lg"
+                    aria-label="الصورة السابقة"
+                  >
+                    &#8594;
+                  </button>
+                  <button 
+                    onClick={() => setPhoto((prev) => (prev < propertyImages.length - 1 ? prev + 1 : 0))}
+                    className="absolute left-4 rounded-full bg-black/60 p-3 text-white hover:bg-primary transition-colors shadow-lg"
+                    aria-label="الصورة التالية"
+                  >
+                    &#8592;
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-2 border-t border-white/10 pt-3 justify-center">
+              {propertyImages.map((img, i) => (
+                <button
+                  key={`fs-${img}`}
+                  onClick={() => setPhoto(i)}
+                  className={`h-16 w-24 shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
+                    safePhotoIndex === i ? "border-primary scale-105" : "border-transparent opacity-60 hover:opacity-100"
+                  }`}
+                >
+                  <img src={img} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 2. Immersive Property Media Gallery */}
+        <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
+          <div 
+            className="relative h-72 sm:h-[420px] w-full bg-slate-950 group"
+            onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+            onTouchEnd={(e) => {
+              const touchEndX = e.changedTouches[0].clientX;
+              const diff = touchStartX - touchEndX;
+              if (Math.abs(diff) > 50) {
+                if (diff > 0) setPhoto((prev) => Math.min(prev + 1, propertyImages.length - 1));
+                else setPhoto((prev) => Math.max(prev - 1, 0));
+              }
+            }}
+          >
+            {media === "photos" ? (
+              hasImages ? (
+                <div 
+                  className="relative h-full w-full cursor-pointer"
+                  onClick={() => setIsFullScreenMedia(true)}
+                >
+                  <ImageWithFallback 
+                    src={propertyImages[safePhotoIndex]} 
+                    alt={property.title} 
+                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-[1.01]" 
+                    testId="img-detail-main" 
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none" />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-white/80 text-center p-4">
+                  <Building2 size={48} className="mb-3 text-white/55" />
+                  <strong className="text-base">لا توجد صور متاحة</strong>
+                  <span className="text-xs text-white/60">لم يتم رفع صور لهذا العقار حتى الآن</span>
+                </div>
+              )
+            ) : property.video360Url ? (
+              <div className="relative h-full w-full">
+                <video src={property.video360Url} className="h-full w-full object-cover" controls autoPlay muted data-testid="video-tour" />
+                <div className="absolute bottom-3 right-3 bg-slate-950/70 text-white text-[11px] px-3 py-1.5 rounded-lg border border-white/10">
+                  فيديو جولة 360° للعقار
+                </div>
+              </div>
+            ) : (
+              <div className="hero-wash flex h-full flex-col items-center justify-center gap-3 text-center text-white p-4">
+                <Sparkles className="text-primary" size={35} />
+                <strong>فيديو توضيحي</strong>
+                <span className="text-xs text-white/60">هذه الوحدة لا تحتوي على فيديو توضيحي متاح حالياً</span>
+              </div>
+            )}
+
+            {/* Floating Top Bar on Media */}
+            <div className="absolute inset-x-4 top-4 flex items-center justify-between pointer-events-auto">
+              <div className="flex items-center gap-2">
+                {hasImages && media === "photos" && (
+                  <span className="rounded-full bg-black/70 backdrop-blur-md px-3 py-1 text-xs font-bold text-white border border-white/20 shadow">
+                    📷 {safePhotoIndex + 1} / {propertyImages.length}
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    if (navigator.share) {
+                      navigator.share({ title: property.title, url: window.location.href }).catch(() => {});
+                    } else {
+                      navigator.clipboard?.writeText(window.location.href);
+                    }
+                  }}
+                  className="flex items-center gap-1 rounded-full bg-black/75 backdrop-blur-md px-3 py-1.5 text-xs font-bold text-white border border-white/20 hover:bg-primary transition-colors shadow"
+                  data-testid="button-share-property"
+                >
+                  <Share2 size={13} /> مشاركة
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {property.video360Url && (
+                  <button 
+                    onClick={() => setMedia(media === "video" ? "photos" : "video")}
+                    className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold backdrop-blur-md border shadow transition-all ${
+                      media === "video" ? "bg-primary text-primary-foreground border-primary" : "bg-black/75 text-white border-white/20 hover:bg-primary"
+                    }`}
+                    data-testid="button-toggle-360-media"
+                  >
+                    <Sparkle size={13} /> 360° تور
+                  </button>
+                )}
+                {onSave && (
+                  <button
+                    onClick={onSave}
+                    className={`rounded-full p-2.5 backdrop-blur-md border transition-all shadow ${
+                      saved ? "bg-primary text-primary-foreground border-primary" : "bg-black/75 text-white border-white/20 hover:bg-primary"
+                    }`}
+                    aria-label={saved ? "إزالة من المفضلة" : "حفظ"}
+                    data-testid={`button-detail-save-${property.id}`}
+                  >
+                    <Heart size={16} fill={saved ? "currentColor" : "none"} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsFullScreenMedia(true)}
+                  className="rounded-full bg-black/75 backdrop-blur-md p-2.5 text-white border border-white/20 hover:bg-primary transition-colors shadow"
+                  aria-label="تكبير الصور"
+                  data-testid="button-expand-media"
+                >
+                  <Maximize2 size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop & Mobile Thumbnail Bar */}
+          {hasImages && media === "photos" && (
+            <div className="flex gap-2.5 overflow-x-auto p-3.5 border-t border-border bg-card/70 scrollbar-none" data-testid="gallery-thumbnails">
+              {propertyImages.map((img, i) => (
+                <button 
+                  key={img} 
+                  onClick={() => { setPhoto(i); setMedia("photos"); }} 
+                  className={`h-16 w-24 shrink-0 overflow-hidden rounded-xl border-2 transition-all ${
+                    safePhotoIndex === i ? "border-primary scale-95 shadow-md ring-2 ring-primary/30" : "border-transparent opacity-75 hover:opacity-100"
+                  }`} 
+                  data-testid={`button-thumbnail-${i}`}
+                >
+                  <ImageWithFallback src={img} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
             </div>
           )}
         </div>
-      </div>
-
-      <InteractiveLeafletMap
-        propertyTitle={property.title}
-        propertyAddress={property.address}
-        city={property.city}
-        university={property.university}
-        propertyLat={(property as any).lat}
-        propertyLng={(property as any).lng}
-        amenities={effectiveAmenities}
-        selectedAmenityKey={selectedAmenityKey}
-        onSelectAmenity={(item) => setSelectedAmenityKey(item.key)}
-        className="mb-4"
-      />
-
-      {isLoadingAmenities && dynamicAmenities.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-6 text-center text-xs text-muted-foreground">
-          <span className="inline-block animate-pulse ml-2">📍</span>
-          جاري استرداد الخدمات المحيطة المعتمدة من OpenStreetMap...
+        
+        {/* Compact 360° & 3D Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {property.video360Url && (
+            <button
+              onClick={() => setMedia("video")}
+              className="flex items-center gap-3 p-4 rounded-2xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-right"
+            >
+              <Sparkles className="text-primary" size={24} />
+              <div>
+                <h3 className="font-bold text-sm">جولة 360°</h3>
+                <p className="text-xs text-muted-foreground">استكشف العقار بزاوية 360°</p>
+              </div>
+            </button>
+          )}
+          <button
+            onClick={() => window.alert("جاري تحميل نموذج 3D الهندسي للوحدة...")}
+            className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-card hover:bg-accent/10 transition-colors text-right"
+          >
+            <Box className="text-accent" size={24} />
+            <div>
+              <h3 className="font-bold text-sm">نموذج 3D</h3>
+              <p className="text-xs text-muted-foreground">استكشف نموذج العقار 3D</p>
+            </div>
+          </button>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {[
-            {
-              key: "universityGate",
-              title: "الجامعة / أقرب جامعة",
-              icon: "🎓",
-              emptyText: "لا توجد بيانات جامعة متاحة",
-            },
-            {
-              key: "supermarket",
-              title: "السوبرماركت والأسواق",
-              icon: "🛒",
-              emptyText: "لا توجد بيانات متاحة",
-            },
-            {
-              key: "cafeRestaurant",
-              title: "المطاعم والكافيهات",
-              icon: "🍴",
-              emptyText: "لا توجد بيانات متاحة",
-            },
-            {
-              key: "pharmacy",
-              title: "الصيدليات",
-              icon: "💊",
-              emptyText: "لا توجد بيانات متاحة",
-            },
-            {
-              key: "hospital",
-              title: "المستشفيات والعيادات",
-              icon: "🏥",
-              emptyText: "لا توجد بيانات متاحة",
-            },
-            {
-              key: "transportation",
-              title: "المواصلات والنقل",
-              icon: "🚌",
-              emptyText: "لا توجد بيانات متاحة",
-            },
-          ].map((cat) => {
-            const items = dynamicAmenities.filter((item) => item.iconType === cat.key);
-            return (
-              <div key={cat.key} className="rounded-xl border border-border/80 bg-card p-3.5 shadow-xs">
-                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border/50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{cat.icon}</span>
-                    <h4 className="text-xs font-bold text-foreground">{cat.title}</h4>
-                  </div>
-                  {items.length > 0 ? (
-                    <span className="text-[10px] font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                      {items.length} {items.length === 1 ? "مكان موثق" : "أماكن موثقة"}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-                      غير متوفر
+
+        {/* 3. Key Facts / Specifications */}
+        <section data-testid="section-key-facts">
+          <h3 className="mb-4 text-lg font-bold">أهم مواصفات السكن</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {facts.map(([Icon, label, value]) => (
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-2xs hover:border-primary/40 transition-colors" key={label}>
+                <Icon size={20} className="mb-2 text-primary" />
+                <span className="block text-xs text-muted-foreground">{label}</span>
+                <strong className="text-sm sm:text-base font-extrabold text-foreground">{value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 4. Description UX with Progressive Disclosure */}
+        <section className="rounded-3xl border border-border bg-card p-6 shadow-sm" data-testid="section-description">
+          <h3 className="mb-3 text-lg font-bold">وصف العقار التفصيلي</h3>
+          <div className="text-sm leading-8 text-muted-foreground">
+            {isDescriptionExpanded ? (
+              <p>{property.rules || property.title + " - وحدة سكنية طلابية مجهزة بالكامل لتوفير بيئة مريحة وآمنة للطلاب بالقرب من الجامعات والمعاهد المصرية، مع توفير كافة المرافق والخدمات الأساسية."}</p>
+            ) : (
+              <p className="line-clamp-2">{property.rules || property.title + " - وحدة سكنية طلابية مجهزة بالكامل لتوفير بيئة مريحة وآمنة للطلاب بالقرب من الجامعات والمعاهد المصرية، مع توفير كافة المرافق والخدمات الأساسية."}</p>
+            )}
+          </div>
+          <button
+            onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+            className="mt-3 text-xs font-bold text-primary hover:underline"
+            data-testid="button-toggle-description"
+          >
+            {isDescriptionExpanded ? "عرض أقل ▲" : "عرض المزيد ▼"}
+          </button>
+        </section>
+
+        {/* 9. Unified Nearby Amenities Experience */}
+        <section className="rounded-3xl border border-border bg-card p-6 shadow-sm space-y-6" data-testid="section-unified-amenities">
+          <button
+            onClick={() => setIsUnifiedAmenitiesExpanded(!isUnifiedAmenitiesExpanded)}
+            className="w-full flex items-center justify-between text-right font-bold text-foreground"
+            data-testid="button-toggle-unified-amenities"
+          >
+            <div>
+              <h3 className="text-lg font-bold">الخدمات المحيطة</h3>
+              <p className="text-xs text-muted-foreground mt-1">كل ما تحتاجه حول السكن من مرافق، خدمات وأماكن قريبة</p>
+            </div>
+            <span className="text-sm font-bold text-primary">{isUnifiedAmenitiesExpanded ? "عرض أقل ▲" : "عرض المزيد ▼"}</span>
+          </button>
+
+          {isUnifiedAmenitiesExpanded && (
+            <div className="space-y-6 pt-4 border-t border-border">
+              {/* Part A: المرافق والخدمات */}
+              <div data-testid="part-amenities">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-bold">المرافق في السكن</h4>
+                  <button
+                    onClick={() => setIsAllAmenitiesOpen(true)}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-bold text-primary hover:bg-primary/5 transition-colors"
+                    data-testid="button-view-all-amenities"
+                  >
+                    عرض جميع المرافق ({baseAmenitiesList.length})
+                  </button>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                  {baseAmenitiesList.slice(0, 8).map((am) => (
+                    <div key={am.key} className="flex items-center gap-3 rounded-2xl border border-border bg-background p-3.5 shadow-2xs">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        ✓
+                      </span>
+                      <div>
+                        <strong className="block text-xs font-bold text-foreground">{am.name}</strong>
+                        <span className="text-[10px] text-muted-foreground">{am.distance || "داخل الوحدة"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Part B: الموقع وما حوله */}
+              <div data-testid="part-location">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-bold">الموقع</h4>
+                  {reviews.length > 0 && (
+                    <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-xs font-bold text-amber-600">
+                      ★ {(reviews.reduce((a, b) => a + 5, 0) / reviews.length).toFixed(1)} · {reviews.length} تقييم
                     </span>
                   )}
                 </div>
 
-                {items.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 py-3 px-4 text-center text-xs text-muted-foreground">
-                    {cat.emptyText}
-                  </div>
-                ) : (
-                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                    {items.map((item) => {
-                      const isSelected = selectedAmenityKey === item.key;
-                      const propLat = (property as any).lat;
-                      const propLng = (property as any).lng;
+                <InteractiveLeafletMap
+                  propertyTitle={property.title}
+                  propertyAddress={property.address}
+                  city={property.city}
+                  university={property.university}
+                  propertyLat={(property as any).lat}
+                  propertyLng={(property as any).lng}
+                  amenities={effectiveAmenities}
+                  selectedAmenityKey={selectedAmenityKey}
+                  onSelectAmenity={(item) => setSelectedAmenityKey(item.key)}
+                  className="rounded-2xl overflow-hidden border border-border shadow-xs"
+                />
 
-                      const geoMeters = propLat && propLng && item.lat && item.lng
-                        ? calcHaversineDistanceMeters(propLat, propLng, item.lat, item.lng)
-                        : null;
-
-                      const geoDistanceFormatted = geoMeters !== null
-                        ? (geoMeters < 1000 ? `${Math.round(geoMeters)} م` : `${(geoMeters / 1000).toFixed(1).replace(".", "٫")} كم`)
-                        : item.distance && item.distance !== "لا توجد بيانات متاحة"
-                          ? item.distance
-                          : "لا توجد بيانات متاحة";
-
-                      const displayDistance = geoDistanceFormatted.startsWith("المسافة الجغرافية:")
-                        ? geoDistanceFormatted
-                        : geoDistanceFormatted !== "لا توجد بيانات متاحة"
-                          ? `المسافة الجغرافية: ${geoDistanceFormatted}`
-                          : geoDistanceFormatted;
-
-                      return (
-                        <div
-                          className={`flex flex-col justify-between gap-2.5 rounded-xl border p-3 cursor-pointer transition-all ${
-                            isSelected
-                              ? "border-primary bg-primary/5 ring-1 ring-primary/40 shadow-xs"
-                              : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"
-                          }`}
-                          key={item.key}
-                          onClick={() => setSelectedAmenityKey(item.key)}
-                          data-testid={`amenity-item-${item.key}`}
-                        >
-                          <div>
-                            <div className="flex items-start justify-between gap-1.5 mb-1.5">
-                              <strong className="block text-xs font-bold text-foreground line-clamp-1" title={item.name}>
-                                {item.name}
-                              </strong>
-                              {isSelected && (
-                                <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded shrink-0">
-                                  نشط 📍
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              {item.rating && item.rating !== "0" && item.rating !== "0.0" ? (
-                                <span
-                                  className="inline-flex items-center gap-1 rounded bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400"
-                                  title="تقييم مكاني المعتمد"
-                                >
-                                  <span>★</span>
-                                  <span>تقييم مكاني: {item.rating} / 5</span>
-                                </span>
-                              ) : (
-                                <span
-                                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
-                                  title="لم يتم تقييمه بعد من قِبل إدارة مكاني"
-                                >
-                                  لم يتم تقييمه بعد
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="border-t border-dashed border-border/80 pt-2 space-y-1 text-[11px]">
-                            <div className="flex items-center justify-between text-muted-foreground">
-                              <span>المسافة الجغرافية:</span>
-                              <span className="font-semibold text-foreground">{displayDistance}</span>
-                            </div>
-
-                            <div className="flex items-center justify-between border-t border-dashed border-border/40 pt-1 text-[10px]">
-                              <span className="text-muted-foreground flex items-center gap-1">
-                                <span>🚶</span> مسار المشي:
-                              </span>
-                              <span className="font-medium text-muted-foreground">بيانات مسار المشي غير متاحة</span>
-                            </div>
-                          </div>
+                {/* Selected Place Card Below Map */}
+                {selectedAmenityKey && dynamicAmenities.find(a => a.key === selectedAmenityKey) && (
+                  (() => {
+                    const item = dynamicAmenities.find(a => a.key === selectedAmenityKey)!;
+                    const propLat = (property as any).lat;
+                    const propLng = (property as any).lng;
+                    const geoMeters = propLat && propLng && item.lat && item.lng
+                      ? calcHaversineDistanceMeters(propLat, propLng, item.lat, item.lng)
+                      : null;
+                    const geoDistanceFormatted = geoMeters !== null
+                      ? (geoMeters < 1000 ? `${Math.round(geoMeters)} م` : `${(geoMeters / 1000).toFixed(1).replace(".", "٫")} كم`)
+                      : item.distance || "غير محدد";
+                    return (
+                      <div className="rounded-2xl border border-primary bg-primary/5 p-4 mt-4 flex justify-between items-center">
+                        <div>
+                          <strong className="block font-bold">{item.name}</strong>
+                          <span className="text-xs text-muted-foreground">{item.iconType} • {geoDistanceFormatted}</span>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })()
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
 
-    {/* 7. معلومات المالك المعتمد (الاسم والتوثيق فقط دون أي وسيلة اتصال خاصة) */}
-    <section className="section-rule mt-7 pt-6 border-t border-border" data-testid="section-owner-profile">
-      <h3 className="mb-3 text-lg font-bold">معلومات المالك المعتمد</h3>
-      <div className="flex items-center gap-3.5 rounded-xl border border-border bg-card p-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg border border-primary/20 shrink-0">
-          {owner.fullName ? owner.fullName.charAt(0) : "م"}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <strong className="text-sm font-bold text-foreground truncate">{owner.fullName || "مالك معتمد في مكاني"}</strong>
-            {owner.isVerified && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-600 shrink-0">
-                <ShieldCheck size={12} />
-                مالك موثق
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5">عضو معتمد في شبكة ملاك مكاني الموثقين رسميًا</p>
-        </div>
-      </div>
-    </section>
-
-    {/* 8. سياسات وقوانين الإقامة بالتفصيل */}
-    <section className="section-rule mt-7 pt-6 border-t border-border">
-      <h3 className="mb-4 text-lg font-bold">سياسات الإقامة وقوانين العقار المعتمدة</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {rules && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">تعليمات السكن وشروطه:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{rules}</p>
-          </div>
-        )}
-        {smoking && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">سياسة التدخين:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{smoking}</p>
-          </div>
-        )}
-        {pets && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">سياسة الحيوانات الأليفة:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{pets}</p>
-          </div>
-        )}
-        {visitorPolicy && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">سياسة الزوار والضيوف:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{visitorPolicy}</p>
-          </div>
-        )}
-        {utilities && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">المرافق والاستهلاك الكهربائي/المائي:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{utilities}</p>
-          </div>
-        )}
-        {deposit && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">مبلغ وقوانين التأمين:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{deposit}</p>
-          </div>
-        )}
-        {fees && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <strong className="block text-xs text-muted-foreground mb-1">الرسوم الإضافية أو فواتير الخدمات العامة:</strong>
-            <p className="text-sm font-semibold text-foreground leading-6">{fees}</p>
-          </div>
-        )}
-
-        {!hasAnyCustomPolicy && (
-          <>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <strong className="block text-xs text-muted-foreground mb-1">سياسة التدخين والحيوانات الأليفة:</strong>
-              <p className="text-sm font-semibold text-foreground leading-6">التدخين غير مسموح به في الغرف المغلقة · الحيوانات الأليفة تتطلب مراجعة مسبقة لشركاء السكن المعتمدين.</p>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <strong className="block text-xs text-muted-foreground mb-1">مبلغ التأمين وحفظ الودائع:</strong>
-              <p className="text-sm font-semibold text-foreground leading-6">يُدفع تأمين معادل لقيمة شهر واحد ويُسترد بالكامل عند إخلاء الوحدة السكنية دون حدوث أي تلفيات متعمدة.</p>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <strong className="block text-xs text-muted-foreground mb-1">سياسة الزيارات والضيوف:</strong>
-              <p className="text-sm font-semibold text-foreground leading-6">يُسمح باستقبال الزوار من أقارب الدرجة الأولى في أوقات الهدوء شريطة التنسيق الكامل والمسؤول مع شركاء الإقامة بالوحدة.</p>
-            </div>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <strong className="block text-xs text-muted-foreground mb-1">سياسة مكاني العامة للإقامة الآمنة:</strong>
-              <p className="text-sm font-semibold text-foreground leading-6">يُلتزم باحترام مواعيد الهدوء، العناية بسلامة الأجهزة والمرافق العامة للوحدة، والامتناع التام عن الممارسات التي تخالف مبادئ التعايش السلمي.</p>
-            </div>
-          </>
-        )}
-      </div>
-    </section>
-
-    {/* 9. ما يقوله الطلاب وتقييماتهم */}
-    <section className="section-rule mt-7 pt-6 border-t border-border">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h3 className="text-lg font-bold">آراء وتقييمات الطلاب</h3>
-        <span className="text-sm font-semibold text-primary">التقييم الإجمالي: ٤٫٧/٥ بناءً على ٤٨ تقييم</span>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        {reviews.map((review) => (
-          <div className="rounded-xl bg-muted/60 p-4" key={review.name}>
-            <div className="mb-3 flex items-center gap-2">
-              <span className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white ${review.color}`}>
-                {review.initials}
-              </span>
-              <div>
-                <strong className="block text-sm">{review.name}</strong>
-                <span className="text-[10px] text-muted-foreground">{review.university}</span>
+              {/* Part C: أماكن قريبة */}
+              <div data-testid="part-nearby">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-bold">أماكن قريبة</h4>
+                  <button
+                    onClick={() => setServicesAccordionOpen(!servicesAccordionOpen)}
+                    className="text-xs font-bold text-primary"
+                  >
+                    {servicesAccordionOpen ? "عرض أقل" : "عرض جميع الأماكن القريبة"}
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {dynamicAmenities.slice(0, servicesAccordionOpen ? undefined : 4).map((item) => {
+                    const isSelected = selectedAmenityKey === item.key;
+                    return (
+                      <div
+                        key={item.key}
+                        onClick={() => setSelectedAmenityKey(item.key)}
+                        className={`flex items-center justify-between gap-2 rounded-2xl border p-3.5 cursor-pointer ${
+                          isSelected ? "border-primary bg-primary/10" : "border-border bg-card"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs font-bold">{item.name}</span>
+                          {(item as any).rating && (
+                            <span className="text-[10px] font-bold text-amber-600">★ {(item as any).rating}</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">{item.iconType}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <span className="mr-auto text-xs text-amber-500">★★★★★</span>
             </div>
-            <p className="text-xs leading-6 text-muted-foreground">“{review.quote}”</p>
+          )}
+        </section>
+
+        {/* 5. Booking Calendar & CTA Box */}
+        <section className="rounded-3xl border border-primary/40 bg-card p-6 shadow-sm space-y-6" data-testid="section-booking-calendar">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold">جدول الحجوزات ومواعيد الاستلام</h3>
+              <p className="text-xs text-muted-foreground">اختر تاريخ الحجز المفضل من التقويم أدناه</p>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setCalendarMonthOffset(prev => Math.max(0, prev - 1))}
+                disabled={calendarMonthOffset === 0}
+                className="p-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40 text-xs w-7 h-7 flex items-center justify-center font-bold"
+                data-testid="btn-calendar-prev"
+              >
+                &larr;
+              </button>
+              <span className="text-xs font-bold px-3 py-1.5 bg-muted rounded-lg select-none">
+                {getCalendarMonthName(calendarMonthOffset)}
+              </span>
+              <button 
+                onClick={() => setCalendarMonthOffset(prev => Math.min(3, prev + 1))}
+                disabled={calendarMonthOffset === 3}
+                className="p-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40 text-xs w-7 h-7 flex items-center justify-center font-bold"
+                data-testid="btn-calendar-next"
+              >
+                &rarr;
+              </button>
+            </div>
           </div>
-        ))}
+
+          <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-semibold text-muted-foreground mb-2">
+            {["ح", "ن", "ث", "ر", "خ", "ج", "س"].map(day => (
+              <div key={day} className="py-1">{day}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5">
+            {getCalendarDays(calendarMonthOffset).map((dayObj, idx) => {
+              if (!dayObj) return <div key={`empty-${idx}`} className="aspect-square" />;
+              const status = getDayStatus(dayObj.date, property, availablePlaces);
+              let statusClass = "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/25 border border-emerald-500/25 cursor-pointer";
+              let statusLabel = "متاح";
+              if (status === "reserved") {
+                statusClass = "bg-amber-500/20 text-amber-700 border border-amber-500/30";
+                statusLabel = "محجوز";
+              } else if (status === "unavailable") {
+                statusClass = "bg-red-500/10 text-red-500 opacity-50 cursor-not-allowed";
+                statusLabel = "غير متاح";
+              }
+              const isSelectable = status === "available" && availablePlaces > 0;
+              return (
+                <div 
+                  key={dayObj.formatted}
+                  onClick={() => { if (isSelectable) onBook(dayObj.formatted); }}
+                  className={`relative aspect-square flex flex-col items-center justify-center rounded-xl text-xs transition-all p-1 shadow-2xs ${statusClass}`}
+                  data-testid={`calendar-day-${dayObj.formatted}`}
+                >
+                  <span className="font-extrabold">{dayObj.day}</span>
+                  <span className="text-[8px] opacity-80">{statusLabel}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
+            <button onClick={onAI} className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-2xl border border-primary bg-card px-5 py-3.5 text-xs font-bold text-primary hover:bg-primary/10 transition-colors" data-testid="button-open-ai">
+              <Sparkles size={16} /> شريك بالذكاء الاصطناعي 🤖
+            </button>
+            <button 
+              onClick={() => { if (availablePlaces > 0) onBook(); }}
+              disabled={availablePlaces <= 0}
+              className={`w-full sm:w-auto flex items-center justify-center gap-2 rounded-2xl px-8 py-3.5 text-xs font-bold shadow-lg transition-transform hover:-translate-y-0.5 ${
+                availablePlaces > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground cursor-not-allowed"
+              }`}
+              data-testid="button-open-booking"
+            >
+              <CalendarDays size={16} />
+              {availablePlaces > 0 ? "احجز الآن وتوقيع العقد الإلكتروني" : "مكتمل الحجز بالكامل"}
+            </button>
+          </div>
+        </section>
+
+        {/* Owner Info & Student Reviews */}
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <h3 className="mb-3 text-base font-bold">معلومات المالك المعتمد</h3>
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary font-bold text-lg border border-primary/20 shrink-0">
+                {owner.fullName ? owner.fullName.charAt(0) : "م"}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <strong className="text-sm font-bold text-foreground">{owner.fullName || "مالك معتمد في مكاني"}</strong>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                    <ShieldCheck size={12} /> موثق
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">عضو معتمد في شبكة ملاك مكاني الموثقين</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <h3 className="mb-3 text-base font-bold">تقييمات الطلاب السابقين</h3>
+            <div className="space-y-3">
+              {reviews.slice(0, 1).map((review) => (
+                <div key={review.name} className="text-xs">
+                  <div className="flex items-center justify-between mb-1">
+                    <strong className="font-bold text-foreground">{review.name} ({review.university})</strong>
+                    <span className="text-amber-500 font-bold">★★★★★</span>
+                  </div>
+                  <p className="text-muted-foreground">“{review.quote}”</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Sticky Mobile Bottom Booking Bar */}
+        <div className="fixed inset-x-0 bottom-0 z-40 bg-card/95 backdrop-blur-md border-t border-border p-4 pb-7 sm:hidden flex items-center justify-between shadow-2xl" data-testid="sticky-mobile-booking-bar">
+          <div>
+            <strong className="text-lg font-black text-primary block">{formatPrice(property.pricePerMonth)} <small className="text-xs font-bold">جنيه / شهر</small></strong>
+            <span className="text-[10px] text-emerald-600 font-bold">{availablePlaces > 0 ? `متاح (${availablePlaces} أماكن)` : "مكتمل الحجز"}</span>
+          </div>
+          <button
+            onClick={() => { if (availablePlaces > 0) onBook(); }}
+            disabled={availablePlaces <= 0}
+            className="rounded-2xl bg-primary px-7 py-3 text-xs font-bold text-primary-foreground shadow-lg disabled:opacity-50"
+            data-testid="sticky-btn-book-now"
+          >
+            {availablePlaces > 0 ? "احجز الآن 🏠" : "مكتمل"}
+          </button>
+        </div>
+
       </div>
-    </section>
-  </div>
-  
-  {/* شريط الإجراءات والـ CTA أسفل تفاصيل العقار */}
-  <div className="sticky bottom-0 flex flex-col gap-2 border-t border-border bg-background/95 p-3 backdrop-blur sm:flex-row sm:justify-end sm:p-4">
-    <button onClick={onAI} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-primary py-3 text-sm font-bold text-primary hover:bg-primary/10 sm:flex-none sm:px-5" data-testid="button-open-ai">
-      <Sparkles size={17} />
-      إيجاد شريك سكن بالذكاء الاصطناعي
-    </button>
-    <button 
-      onClick={() => {
-        if (availablePlaces > 0) {
-          onBook();
-        }
-      }} 
-      disabled={availablePlaces <= 0}
-      className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold sm:flex-none sm:px-7 ${
-        availablePlaces > 0 
-          ? "bg-primary text-primary-foreground hover:-translate-y-0.5" 
-          : "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
-      }`} 
-      data-testid="button-open-booking"
-    >
-      <CalendarDays size={17} />
-      {availablePlaces > 0 ? "احجز الآن" : "غير متاح — مكتملة"}
-    </button>
-  </div>
-</Modal>;
+    </Modal>
+  );
 }
 
 function CoffeeIcon() { return <span className="text-sm font-bold">ق</span>; }
@@ -1562,14 +1497,14 @@ function Footer({
 }
 
 function AppContent() {
-  const { user, isSignedIn } = useUser();
+  const { user, isSignedIn, signupIntent } = useAuth();
   const showOnboarding = Boolean(isSignedIn && user && isOnboardingRequired(user));
   const [light, setLight] = useState(false); 
   const [activeView, setActiveView] = useState<ActiveViewType>("listings"); 
   const [location, setLocation] = useLocation();
 
   const onboardingMode: "student" | "owner" =
-    activeView === "ownerPublic" || activeView === "ownerDashboard" || location.startsWith("/owner") || location.startsWith("/owners")
+    signupIntent === "owner" || activeView === "ownerPublic" || activeView === "ownerDashboard" || location.startsWith("/owner") || location.startsWith("/owners")
       ? "owner"
       : "student";
 
@@ -1617,6 +1552,7 @@ function AppContent() {
   const [toast, setToast] = useState(""); 
   const [testimonial, setTestimonial] = useState(0);
   const [studentTab, setStudentTab] = useState<"bookings" | "favorites" | "profile" | "support">("bookings");
+  const [ownerTab, setOwnerTab] = useState<"units" | "inspections" | "bookings" | "support">("units");
 
   const refreshProperties = () => {
     setPlatformProperties(getAllPlatformProperties());
@@ -1812,6 +1748,8 @@ function AppContent() {
         savedCount={saved.length}
         studentTab={studentTab}
         setStudentTab={setStudentTab}
+        ownerTab={ownerTab}
+        setOwnerTab={setOwnerTab}
       />
 
       {activeView === "listings" && (
@@ -1891,6 +1829,7 @@ function AppContent() {
           openToast={setToast} 
           onViewPublicServices={() => setActiveView("ownerPublic")}
           onViewPropertyModal={(p) => setSelected(p as Property)}
+          initialTab={ownerTab}
         />
       )}
 

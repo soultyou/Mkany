@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { useAuth, EGYPTIAN_UNIVERSITIES } from "./clerk-auth";
+import { useAuth, EGYPTIAN_UNIVERSITIES, EGYPTIAN_CITIES } from "./clerk-auth";
 import { StandardModal } from "@/components/ui/StandardModal";
-import { GraduationCap, Building2, User, Phone, CreditCard, School, CheckCircle2, AlertCircle } from "lucide-react";
+import { GraduationCap, Building2, User, Phone, CreditCard, School, MapPin, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -10,11 +10,12 @@ interface OnboardingModalProps {
 }
 
 export function OnboardingModal({ isOpen, mode = "student", onToast }: OnboardingModalProps) {
-  const { user, completeUserOnboarding } = useAuth();
+  const { user, completeUserOnboarding, signOut } = useAuth();
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [phoneNumber, setPhoneNumber] = useState(user?.phoneNumber && user.phoneNumber !== "01000000000" ? user.phoneNumber : "");
   const [nationalId, setNationalId] = useState(user?.nationalId && user.nationalId !== "00000000000000" ? user.nationalId : "");
   const [university, setUniversity] = useState(user?.university || EGYPTIAN_UNIVERSITIES[0]);
+  const [city, setCity] = useState(user?.university && EGYPTIAN_CITIES.includes(user.university) ? user.university : EGYPTIAN_CITIES[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -31,6 +32,9 @@ export function OnboardingModal({ isOpen, mode = "student", onToast }: Onboardin
       }
       if (user.university) {
         setUniversity(user.university);
+        if (EGYPTIAN_CITIES.includes(user.university)) {
+          setCity(user.university);
+        }
       }
     }
   }, [user]);
@@ -72,11 +76,19 @@ export function OnboardingModal({ isOpen, mode = "student", onToast }: Onboardin
         fullName: fullName.trim(),
         phoneNumber: cleanPhone,
         nationalId: mode === "student" ? nationalId.trim() : undefined,
-        university: mode === "student" ? university : undefined,
+        university: mode === "owner" ? city : (mode === "student" ? university : undefined),
       });
       onToast?.(mode === "owner" ? "تم توثيق حساب المالك وتفعيله بنجاح!" : "تم توثيق حساب الطالب بنجاح!");
     } catch (err: any) {
-      setErrorMsg(err?.message || "حدث خطأ أثناء حفظ بيانات الحساب.");
+      const msg = err?.message || "";
+      if (msg.includes("403") || msg.toLowerCase().includes("forbidden") || msg.includes("غير مسموح")) {
+        setErrorMsg("حدث خطأ 403 (غير مسموح). جاري تسجيل الخروج بأمان لتسجيل الدخول بحساب صحيح...");
+        try {
+          await signOut();
+        } catch {}
+      } else {
+        setErrorMsg(msg || "حدث خطأ أثناء حفظ بيانات الحساب.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -165,7 +177,27 @@ export function OnboardingModal({ isOpen, mode = "student", onToast }: Onboardin
               </div>
             </div>
 
-            {!isOwnerMode && (
+            {isOwnerMode ? (
+              <div>
+                <label className="block text-xs font-bold text-foreground mb-1.5">
+                  المدينة / الموقع الرئيسي للعقارات <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-border bg-background px-3.5 py-2.5 pr-10 text-xs font-semibold text-foreground outline-none focus:border-primary"
+                    required
+                    data-testid="onboarding-select-city"
+                  >
+                    {EGYPTIAN_CITIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <MapPin size={16} className="pointer-events-none absolute right-3 top-3 text-muted-foreground" />
+                </div>
+              </div>
+            ) : (
               <>
                 <div>
                   <label className="block text-xs font-bold text-foreground mb-1.5">
@@ -212,26 +244,41 @@ export function OnboardingModal({ isOpen, mode = "student", onToast }: Onboardin
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition-all ${
-              isOwnerMode ? "bg-amber-600 hover:bg-amber-700" : "bg-primary hover:bg-primary/90"
-            }`}
-            data-testid="onboarding-submit-btn"
-          >
-            {isSubmitting ? (
-              <span className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                جاري الحفظ والتوثيق...
-              </span>
-            ) : (
-              <>
-                <CheckCircle2 size={18} />
-                {isOwnerMode ? "تأكيد وإنشاء حساب المالك 🏢" : "تأكيد وإنشاء حساب الطالب 🎓"}
-              </>
-            )}
-          </button>
+          <div className="space-y-2 pt-2">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition-all ${
+                isOwnerMode ? "bg-amber-600 hover:bg-amber-700" : "bg-primary hover:bg-primary/90"
+              }`}
+              data-testid="onboarding-submit-btn"
+            >
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  جاري الحفظ والتوثيق...
+                </span>
+              ) : (
+                <>
+                  <CheckCircle2 size={18} />
+                  {isOwnerMode ? "تأكيد وإنشاء حساب المالك 🏢" : "تأكيد وإنشاء حساب الطالب 🎓"}
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await signOut();
+                } catch {}
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              data-testid="onboarding-signout-btn"
+            >
+              تسجيل الخروج والبدء بحساب جديد (إصلاح مشاكل الصلاحيات)
+            </button>
+          </div>
         </form>
       </div>
     </StandardModal>
