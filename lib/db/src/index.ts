@@ -35,6 +35,17 @@ export function getPoolConfig(connectionString?: string): any {
   }
 }
 
+export function setRuntimeDatabaseUrl(connectionString: string) {
+  if (!connectionString) return;
+  try {
+    const config = getPoolConfig(connectionString);
+    pool = new Pool(config);
+    db = drizzle(pool, { schema });
+  } catch (err) {
+    console.error('[Database] Runtime initialization error:', err);
+  }
+}
+
 if (process.env.DATABASE_URL) {
   try {
     const config = getPoolConfig(process.env.DATABASE_URL);
