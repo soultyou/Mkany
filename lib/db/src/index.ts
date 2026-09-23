@@ -57,21 +57,47 @@ if (process.env.DATABASE_URL) {
       throw new Error('Database initialization failed');
     }
   }
-} else if (process.env.NODE_ENV === "production") {
-  throw new Error('DATABASE_URL environment variable is required in production');
 }
 
 if (!db) {
   const noOp = {
-    findMany: async () => [],
-    findFirst: async () => null,
-    findUnique: async () => null,
-    create: async (d: any) => d?.data ?? {},
-    update: async (d: any) => d?.data ?? {},
-    delete: async () => ({}),
+    findMany: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return [];
+    },
+    findFirst: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return null;
+    },
+    findUnique: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return null;
+    },
+    create: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return {};
+    },
+    update: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return {};
+    },
+    delete: async () => {
+      if (process.env.NODE_ENV === "production" && !pool) throw new Error('DATABASE_URL environment variable is required in production');
+      return {};
+    },
   };
   db = new Proxy({}, {
-    get: (_, prop) => (prop === 'query' ? new Proxy({}, { get: () => noOp }) : async () => []),
+    get: (_, prop) => {
+      if (!pool && process.env.NODE_ENV === "production") {
+        throw new Error('DATABASE_URL environment variable is required in production');
+      }
+      return prop === 'query' ? new Proxy({}, { get: () => noOp }) : async () => {
+        if (!pool && process.env.NODE_ENV === "production") {
+          throw new Error('DATABASE_URL environment variable is required in production');
+        }
+        return [];
+      };
+    },
   });
 }
 
