@@ -11,25 +11,32 @@ import { clerkWebhooksRouter } from "./routes/webhooks";
 
 const app: Express = express();
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+try {
+  app.use(
+    pinoHttp({
+      logger,
+      serializers: {
+        req(req) {
+          return {
+            id: req.id,
+            method: req.method,
+            url: req.url?.split("?")[0],
+          };
+        },
+        res(res) {
+          return {
+            statusCode: res.statusCode,
+          };
+        },
       },
-      res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
-    },
-  }),
-);
+    }),
+  );
+} catch {
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    console.log(`[HTTP] ${req.method} ${req.url}`);
+    next();
+  });
+}
 
 // Build environment-driven CORS origin allowlist
 const getAllowedOrigins = (): Set<string> => {
