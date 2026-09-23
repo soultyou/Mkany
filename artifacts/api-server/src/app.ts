@@ -3,7 +3,6 @@ import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -11,32 +10,14 @@ import { clerkWebhooksRouter } from "./routes/webhooks";
 
 const app: Express = express();
 
-try {
-  app.use(
-    pinoHttp({
-      logger,
-      serializers: {
-        req(req) {
-          return {
-            id: req.id,
-            method: req.method,
-            url: req.url?.split("?")[0],
-          };
-        },
-        res(res) {
-          return {
-            statusCode: res.statusCode,
-          };
-        },
-      },
-    }),
-  );
-} catch {
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    console.log(`[HTTP] ${req.method} ${req.url}`);
-    next();
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[HTTP] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
   });
-}
+  next();
+});
 
 // Build environment-driven CORS origin allowlist
 const getAllowedOrigins = (): Set<string> => {
