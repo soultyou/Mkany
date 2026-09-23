@@ -11,12 +11,6 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
-  "hyperdrive": [
-    {
-      "binding": "HYPERDRIVE",
-      "id": "YOUR_HYPERDRIVE_ID_HERE"
-    }
-  ],
   "vars": {
     "NODE_ENV": "production"
   }
