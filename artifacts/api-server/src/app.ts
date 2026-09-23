@@ -97,15 +97,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const publishableKey = process.env.CLERK_PUBLISHABLE_KEY || process.env.VITE_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const secretKey = process.env.CLERK_SECRET_KEY;
 
-  if (secretKey && publishableKey) {
+  if (secretKey) {
     clerkMiddleware({
-      publishableKey,
-      secretKey
+      ...(publishableKey ? { publishableKey } : {}),
+      secretKey,
     })(req, res, next);
     return;
   } else {
     if (process.env.NODE_ENV === "production") {
-      logger.error("CRITICAL: Missing required Clerk configuration keys in production mode! Failing closed.");
+      logger.error("CRITICAL: Missing required Clerk secret key in production mode! Failing closed.");
       res.status(500).json({
         error: "Server Configuration Error",
         message: "Clerk authentication service is misconfigured in production mode.",

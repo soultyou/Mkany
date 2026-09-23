@@ -20,18 +20,19 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (env.HYPERDRIVE?.connectionString) {
-      setRuntimeDatabaseUrl(env.HYPERDRIVE.connectionString);
-    } else if (env.DATABASE_URL) {
-      setRuntimeDatabaseUrl(env.DATABASE_URL);
-    }
-
+    // Propagate runtime secrets and configurations to process.env for Node/Express modules
     if (env.CLERK_SECRET_KEY) process.env.CLERK_SECRET_KEY = env.CLERK_SECRET_KEY;
     if (env.CLERK_PUBLISHABLE_KEY) process.env.CLERK_PUBLISHABLE_KEY = env.CLERK_PUBLISHABLE_KEY;
     if (env.VITE_CLERK_PUBLISHABLE_KEY) process.env.VITE_CLERK_PUBLISHABLE_KEY = env.VITE_CLERK_PUBLISHABLE_KEY;
     if (env.CLERK_WEBHOOK_SECRET) process.env.CLERK_WEBHOOK_SECRET = env.CLERK_WEBHOOK_SECRET;
     if (env.SUPABASE_URL) process.env.SUPABASE_URL = env.SUPABASE_URL;
     if (env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+
+    // Set DATABASE_URL and initialize runtime connection
+    if (env.DATABASE_URL) {
+      process.env.DATABASE_URL = env.DATABASE_URL;
+      setRuntimeDatabaseUrl(env.DATABASE_URL);
+    }
 
     if (url.pathname.startsWith("/api")) {
       return new Promise<Response>((resolve) => {
